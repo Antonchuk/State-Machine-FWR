@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -86,9 +87,11 @@ namespace State_Machine_FWR
     [Serializable]
     public struct MAX_MIN_data_for_modules
     {
-        public Dictionary<int, float> MAX_data_slice;
-        public Dictionary<int, float> TAR_data_slice;
-        public Dictionary<int, float> MIN_data_slice;
+        public ConcurrentDictionary<int, float> MAX_data_slice;
+        public ConcurrentDictionary<int, float> TAR_data_slice;
+        public ConcurrentDictionary<int, float> MIN_data_slice;
+        public ConcurrentDictionary<int, float> Step_plus;
+        public ConcurrentDictionary<int, float> Step_minus;
     }
     [Serializable]
     public struct Com_port
@@ -163,7 +166,7 @@ namespace State_Machine_FWR
         public State_data st_PLLL;
         public State_data st_Er;
         public State_data st_Em;
-        public Dictionary<int, Comand_COM> Сom_dict;
+        //public ConcurrentDictionary<int, Comand_COM> Сom_dict;
         public List<string> IP_adress_port;
         //public int TCP1_port;
     }
@@ -498,9 +501,12 @@ namespace State_Machine_FWR
                             if (list.Length>=2 && list[1]!="")
                             {
                                 //Log_m?.Invoke("Change state to -"+ list[1]+"-");
-                                _state.Push_change_state(list[1]);                                                                
+                                _state.Push_change_state(list[1]);
+                                //Log_m?.Invoke("after push state");
                             }
                             //прием комманд
+                            //Log_m?.Invoke("before coms");
+                            //Log_m?.Invoke("list 2= -"+list[2]+"-");
                             if (list.Length >= 3 && list[2] != "")
                             {
                                 Log_m?.Invoke("Парсим комманды " + list[2]);
@@ -541,7 +547,7 @@ namespace State_Machine_FWR
             }
             catch (Exception ex)
             {
-                Log_m?.Invoke("Error in parsing TCP client answer "+ ex.Message);
+                Log_m?.Invoke("Error in parsing TCP client answer "+ ex.Message+ex.ToString());
             }
         }
         //сервер
@@ -614,8 +620,8 @@ namespace State_Machine_FWR
         public AutoResetEvent event_7 = new AutoResetEvent(true);
         public AutoResetEvent event_8 = new AutoResetEvent(true);
         //public AutoResetEvent event_TCP = new AutoResetEvent(true);
-        public  Dictionary<int, float> StateInfo = new Dictionary<int, float>(); //писывает состояние стэйта
-        private Dictionary<int, float> Push_target_list = new Dictionary<int, float>(); //список изменений в целевые значения
+        public  ConcurrentDictionary<int, float> StateInfo = new ConcurrentDictionary<int, float>(); //писывает состояние стэйта
+        private ConcurrentDictionary<int, float> Push_target_list = new ConcurrentDictionary<int, float>(); //список изменений в целевые значения
         //public List<string> IP_adress;
         private bool first_loop1 = true;
         private bool first_loop2 = true;
@@ -632,14 +638,22 @@ namespace State_Machine_FWR
         //просто пихает в список изменение, старые перезаписываются
         public void Push_target_value(int key_target, float value_target)
         {
-            if (Push_target_list.ContainsKey(key_target))
+            if (max_min_tar_data.MAX_data_slice.ContainsKey(key_target) && (value_target>max_min_tar_data.MAX_data_slice[key_target]))
             {
+                value_target = max_min_tar_data.MAX_data_slice[key_target];
+            }
+            if (max_min_tar_data.MIN_data_slice.ContainsKey(key_target) && (value_target<max_min_tar_data.MIN_data_slice[key_target]))
+            {
+                value_target = max_min_tar_data.MIN_data_slice[key_target];
+            }
+            if (Push_target_list.ContainsKey(key_target))
+            {                
                 Push_target_list[key_target] = value_target;
             }
             else
             {
-                Push_target_list.Add(key_target, value_target);
-            }
+                Push_target_list.TryAdd(key_target, value_target);
+            }                        
         }
         //команды изменения состояния
         public void Push_change_state(string name)
@@ -661,7 +675,10 @@ namespace State_Machine_FWR
                 case "Em":
                     Em_handle();
                     break;
-            }            
+                default:
+                    Log_message?.Invoke("we go defoault");
+                    break;
+            }
         }
         //запуск таймеров на все порты
         public void RunTimer(List<Comand_COM> list1,
@@ -678,7 +695,7 @@ namespace State_Machine_FWR
             //Log_message?.Invoke("start RUNTimer");
             //Log_message?.Invoke("Name is"+name);
             max_min_tar_data = m_t_m;
-            if (list1!=null)
+            if (list1!=null && settings.COM1_timer.period!=0)
             {
                 TimerCallback ticker_com1 = new TimerCallback(Tick_com1);
                 _serialPort_1 = Ini_comport(com_settings.COM_port_1);
@@ -697,7 +714,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_1.Name);
                 }
             }
-            if (list2 != null)
+            if (list2 != null && settings.COM2_timer.period != 0)
             {
                 TimerCallback ticker_com2 = new TimerCallback(Tick_com2);
                 _serialPort_2 = Ini_comport(com_settings.COM_port_2);
@@ -716,7 +733,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_2.Name);
                 }
             }
-            if (list3 != null)
+            if (list3 != null && settings.COM3_timer.period != 0)
             {
                 TimerCallback ticker_com3 = new TimerCallback(Tick_com3);
                 _serialPort_3 = Ini_comport(com_settings.COM_port_3);
@@ -735,7 +752,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_3.Name);
                 }
             }
-            if (list4 != null)
+            if (list4 != null && settings.COM4_timer.period != 0)
             {
                 TimerCallback ticker_com4 = new TimerCallback(Tick_com4);
                 _serialPort_4 = Ini_comport(com_settings.COM_port_4);
@@ -754,7 +771,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_4.Name);
                 }
             }
-            if (list5 != null)
+            if (list5 != null && settings.COM5_timer.period != 0)
             {
                 TimerCallback ticker_com5 = new TimerCallback(Tick_com5);
                 _serialPort_5 = Ini_comport(com_settings.COM_port_5);
@@ -773,7 +790,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_5.Name);
                 }
             }
-            if (list6 != null)
+            if (list6 != null && settings.COM6_timer.period != 0)
             {
                 TimerCallback ticker_com6 = new TimerCallback(Tick_com6);
                 _serialPort_6 = Ini_comport(com_settings.COM_port_6);
@@ -792,7 +809,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_6.Name);
                 }
             }
-            if (list7 != null)
+            if (list7 != null && settings.COM7_timer.period != 0)
             {
                 TimerCallback ticker_com7 = new TimerCallback(Tick_com7);
                 _serialPort_7 = Ini_comport(com_settings.COM_port_7);
@@ -811,7 +828,7 @@ namespace State_Machine_FWR
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_7.Name);
                 }
             }
-            if (list8 != null)
+            if (list8 != null && settings.COM8_timer.period != 0)
             {
                 TimerCallback ticker_com8 = new TimerCallback(Tick_com8);
                 _serialPort_8 = Ini_comport(com_settings.COM_port_8);
@@ -886,35 +903,55 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop1, 1);
-                if (first_loop1) first_loop1 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop1, 1);
+                    if (first_loop1) first_loop1 = false;
+                }
+                else
+                {
+                    //шлем событие, что можно убивать
+                    event_1.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //шлем событие, что можно убивать
-                event_1.Set();
+                Log_message?.Invoke("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
-
+            finally
+            {
+                //Log_message?.Invoke("block finally");
+            }
         }
         //тик для таймера 2
         private void Tick_com2(object state)
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop2, 2);
-                if (first_loop2) first_loop2 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop2, 2);
+                    if (first_loop2) first_loop2 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_2.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_2.Set();
+                Log_message?.Invoke("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //тик для таймера 3
@@ -922,16 +959,27 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop3, 3);
-                if (first_loop3) first_loop3 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop3, 3);
+                    if (first_loop3) first_loop3 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_3.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_3.Set();
+                Log_message?.Invoke("exeption timer 3" + ex.Message.ToString() + "\n" + ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //тик для таймера 4
@@ -939,16 +987,27 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop4, 4);
-                if (first_loop4) first_loop4 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop4, 4);
+                    if (first_loop4) first_loop4 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_4.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_4.Set();
+                Log_message?.Invoke("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //тик для таймера 5
@@ -956,16 +1015,28 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop5, 5);
-                if (first_loop5) first_loop5 = false;
+                if (!need_kill_all)
+                {
+                    //Log_message?.Invoke("tick timer 5");
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop5, 5);
+                    if (first_loop5) first_loop5 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_5.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_5.Set();
+                Log_message?.Invoke("exeption timer 5 "+ ex.Message.ToString()+"\n"+ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //тик для таймера 6
@@ -973,16 +1044,27 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop6, 6);
-                if (first_loop6) first_loop6 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop6, 6);
+                    if (first_loop6) first_loop6 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_6.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_6.Set();
+                Log_message?.Invoke("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //тик для таймера 7
@@ -990,16 +1072,27 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop7,7);
-                if (first_loop7) first_loop7 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop7, 7);
+                    if (first_loop7) first_loop7 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_7.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_7.Set();
+                Log_message?.Invoke("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //тик для таймера 8
@@ -1007,16 +1100,27 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            if (!need_kill_all)
+            try
             {
-                Data_for_COM_thread data = (Data_for_COM_thread)state;
-                COM_ask(data.port, data.list, first_loop8,8);
-                if (first_loop8) first_loop8 = false;
+                if (!need_kill_all)
+                {
+                    Data_for_COM_thread data = (Data_for_COM_thread)state;
+                    COM_ask(data.port, data.list, first_loop8, 8);
+                    if (first_loop8) first_loop8 = false;
+                }
+                else
+                {
+                    //убиваем
+                    event_8.Set();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                //убиваем
-                event_8.Set();
+                Log_message?.Invoke("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
+            }
+            finally
+            {
+                //Log_message?.Invoke("block finally");
             }
         }
         //настройка СОМ порта
@@ -1073,7 +1177,7 @@ namespace State_Machine_FWR
                 //если данная информация присутствует в стайте, тонужно удалить её
                 if (StateInfo.ContainsKey(comand.id))
                 {
-                    StateInfo.Remove(comand.id);
+                    _ = StateInfo.TryRemove(comand.id, out _);
                 }
                 //Error_deal(false, num_loop);
                 out_data.message = name + " - readtask for read was Faulted " + port.PortName;
@@ -1167,13 +1271,19 @@ namespace State_Machine_FWR
                     //это команда ИБП - парсим как ИБП
                     oout_data = Parse_UPS_DQ1(real_ans, portname);
                     break;
-                case 10:
-                    //это датчик вакуума HV 1
+                case 10:                
+                case 12:
+                case 13:
+                    //это датчик вакуума Thyracont новый протокол
                     oout_data = Parse_Thyracont(real_ans, comand.id,portname);
+                    break;
+                case 11:
+                    //датчик вакуума Thyracont старый протокол
+                    oout_data = Parse_Thyracont_old(real_ans, comand.id, portname);
                     break;
                 case 14:
                     //FUG set voltage control
-                    oout_data = Parse_FUG_set_control(real_ans,portname);
+                    //oout_data = Parse_FUG_set_control(real_ans,portname);
                     break;
                 case 15:
                     //FUG current
@@ -1221,12 +1331,164 @@ namespace State_Machine_FWR
                 case 66:
                 case 67:
                 case 68:
+                case 71:
+                case 72:
+                case 73:
+                case 74:
+                case 75:
+                case 76:
+                case 77:
+                case 78:
+                case 80:
+                case 81:
+                case 98:
+                case 99:
+                case 100:
+                case 101:
+                case 102:
                     //Pfeiffer 309 Actual speed Hz
                     oout_data = Parse_Pff(real_ans, comand.id,portname);
+                    break;
+                //103 - ask temp
+                //104 - set temp
+                //105 - ask heater range
+                //106 - set heater range
+                case 103:
+                case 104:
+                case 105:
+                case 106:
+                    //температура LakeShore
+                    Parse_LakeShore();
+                    break;
+                case 109:
+                case 110:
+                case 111:
+                case 112:
+                case 113:
+                case 114:
+                case 115:
+                case 116:
+                case 117:
+                case 118:
+                case 119:
+                case 120:
+                case 121:
+                case 122:
+                case 123:
+                case 124:
+                    //DIO I-7045D
+                    oout_data = Parse_DIO(real_ans, comand.id, portname); ;
                     break;
             }
 
             return oout_data;
+        }
+        //контроллер температуры LakeShore
+        //команды RANGE? RANGE SETP? SETP TEMP
+        private COM_data_Out Parse_LakeShore()
+        {
+            COM_data_Out aaa = new COM_data_Out { };
+            try
+            {
+                // команда типа TEMP?
+            }
+            catch (Exception ex)
+            {
+                aaa.message = name + " parsing problem LakeShore Temperature" + ex.ToString();
+                aaa.need_error_procces = true;
+            }
+
+            return aaa;
+        }
+        //DIO I-7045
+        private COM_data_Out Parse_DIO(string ans, int id, int portname)
+        {
+            COM_data_Out aaa = new COM_data_Out { };
+            try
+            {
+                ans = ans.Substring(1, 4);
+                int i_ans = int.Parse(ans, System.Globalization.NumberStyles.HexNumber);
+                ans = Convert.ToString(i_ans, 2);
+                ans = ans.PadLeft(16, '0');
+                //в строке всё задом наперед
+                char[] rev_ans = ans.ToArray();
+                //Log_message?.Invoke("rev_ans = "+rev_ans[15].ToString());
+
+                Array.Reverse(rev_ans);
+                //Log_message?.Invoke("aft rev = " + rev_ans[15].ToString());
+                //пишем и проверяем значение DIO выходов
+                float now_bit = -1;
+                switch (id)
+                {
+                    case 109:
+                        now_bit = float.Parse(rev_ans[15].ToString());
+                        break;
+                    case 110:
+                        now_bit = float.Parse(rev_ans[14].ToString());
+                        break;
+                    case 111:
+                        now_bit = float.Parse(rev_ans[13].ToString());
+                        break;
+                    case 112:
+                        now_bit = float.Parse(rev_ans[12].ToString());
+                        break;
+                    case 113:
+                        now_bit = float.Parse(rev_ans[11].ToString());
+                        break;
+                    case 114:
+                        now_bit = float.Parse(rev_ans[10].ToString());
+                        break;
+                    case 115:
+                        now_bit = float.Parse(rev_ans[9].ToString());
+                        break;
+                    case 116:
+                        now_bit = float.Parse(rev_ans[8].ToString());
+                        break;
+                    case 117:
+                        now_bit = float.Parse(rev_ans[7].ToString());
+                        break;
+                    case 118:
+                        now_bit = float.Parse(rev_ans[6].ToString());
+                        break;
+                    case 119:
+                        now_bit = float.Parse(rev_ans[5].ToString());
+                        break;
+                    case 120:
+                        now_bit = float.Parse(rev_ans[4].ToString());
+                        break;
+                    case 121:
+                        now_bit = float.Parse(rev_ans[3].ToString());
+                        break;
+                    case 122:
+                        now_bit = float.Parse(rev_ans[2].ToString());
+                        break;
+                    case 123:
+                        now_bit = float.Parse(rev_ans[1].ToString());
+                        break;
+                    case 124:
+                        now_bit = float.Parse(rev_ans[0].ToString());
+                        break;
+                }
+
+                //Log_message?.Invoke("DIO "+ id.ToString()+" = "+now_bit.ToString());
+
+                if (!Compare_bits(now_bit,id))
+                {
+                    // все плохо, параметр выщел за пределы хначения
+                    aaa.message = name + " error DIO I7045D value num = " + id.ToString();
+                    aaa.need_break = true;
+                    //break;
+                }
+                //aaa.ans=0;
+                //Log_message?.Invoke("DIO= "+ans);
+                //Log_message?.Invoke("DIO " + id.ToString() + " = " + now_bit.ToString());
+            }
+            catch (Exception ex)
+            {
+                aaa.message = name + " parsing problem DIO I-7045" + ex.ToString();
+                aaa.need_error_procces = true;
+            }
+            return aaa;
         }
         //Pfeiffer
         private COM_data_Out Parse_Pff(string ans, int id,int portname)
@@ -1310,7 +1572,7 @@ namespace State_Machine_FWR
             COM_data_Out aaa = new COM_data_Out { };
             try
             {
-                if (ans.Length >= 5 && ans.Substring(0, 5) != "#0 E0")
+                if (ans.Length >= 2 && ans.Substring(0, 2) != "E0")
                 {
                     //ошибка
                     //Log_message?.Invoke(name + " FUG no answer for set control command");
@@ -1338,7 +1600,7 @@ namespace State_Machine_FWR
                 //Log_message?.Invoke("current = " + ans.Substring(6, ans.Length - 6));
                 if (ans.Length > 6)
                 {
-                    aaa.ans = float.Parse(ans.Substring(6, ans.Length - 6).Replace('.', ','));
+                    aaa.ans = float.Parse(ans.Substring(3, ans.Length - 3).Replace('.', ','));
                     Write_to_StateInfo(aaa.ans, id);
                 }
                 else
@@ -1366,7 +1628,7 @@ namespace State_Machine_FWR
                 if (ans.Length > 6)
                 {
                     //Log_message?.Invoke("voltage = " + ans.Substring(6, ans.Length - 6));
-                    aaa.ans = float.Parse(ans.Substring(6, ans.Length - 6).Replace('.', ','));
+                    aaa.ans = float.Parse(ans.Substring(3, ans.Length - 3).Replace('.', ','));
                     Write_to_StateInfo(aaa.ans, id);
                 }
                 else
@@ -1390,30 +1652,30 @@ namespace State_Machine_FWR
         private void Check_and_write(float ans, Comand_COM com, SerialPort port)
         {
             //проверяем есть ли в списке на изменение данная команда
-            if (Push_target_list.ContainsKey(com.id))
+            if (Push_target_list.ContainsKey(com.id) && max_min_tar_data.TAR_data_slice.ContainsKey(com.id))
             {
                 //обновляем значение таргет
                 max_min_tar_data.TAR_data_slice[com.id] = Push_target_list[com.id];
                 //удаляем из списка
-                Push_target_list.Remove(com.id);
+                Push_target_list.TryRemove(com.id, out _);
             }
             //сравниваем текущее значение и макс/мин
             if (ans >= max_min_tar_data.MIN_data_slice[com.id] &&
                 ans <= max_min_tar_data.MAX_data_slice[com.id])
             {
                 //если в переделах нормы - сравниваем нужно ли менять значение
-                if (ans < max_min_tar_data.TAR_data_slice[com.id])
+                if (max_min_tar_data.TAR_data_slice.ContainsKey(com.id) && ans < max_min_tar_data.TAR_data_slice[com.id])
                 {
                     //если шаг не выйдет за пределы макс/мин
                     //test
                     //if (com.id == 23)
                         //Log_message("asc ans+ step = "+(ans+com.target_step_plus).ToString());
                     //test
-                    if ((ans + com.target_step_plus) <= max_min_tar_data.MAX_data_slice[com.id] &&
-                            (ans + com.target_step_plus) <= max_min_tar_data.TAR_data_slice[com.id])
+                    if ((ans + max_min_tar_data.Step_plus[com.id]) <= max_min_tar_data.MAX_data_slice[com.id] &&
+                            (ans + max_min_tar_data.Step_plus[com.id]) <= max_min_tar_data.TAR_data_slice[com.id])
                     {
                         //делаем шаг вперед
-                        COM_write(com, port, ans + com.target_step_plus);
+                        COM_write(com, port, ans + max_min_tar_data.Step_plus[com.id]);
                     }
                 }
                 else
@@ -1424,11 +1686,11 @@ namespace State_Machine_FWR
                         //if (com.id == 23)
                             //Log_message("desc ans+ step = " + (ans - com.target_step_minus).ToString());
                         //test
-                    if ((ans - com.target_step_minus) >= max_min_tar_data.MIN_data_slice[com.id] &&
-                                (ans - com.target_step_minus) >= max_min_tar_data.TAR_data_slice[com.id])
+                    if ((ans - max_min_tar_data.Step_minus[com.id]) >= max_min_tar_data.MIN_data_slice[com.id] &&
+                                (ans - max_min_tar_data.Step_minus[com.id]) >= max_min_tar_data.TAR_data_slice[com.id])
                         {
                             //делаем шаг назад
-                            COM_write(com, port, ans - com.target_step_minus);
+                            COM_write(com, port, ans - max_min_tar_data.Step_minus[com.id]);
                         }
                 }
             }
@@ -1532,6 +1794,55 @@ namespace State_Machine_FWR
                             aaa.need_break = true;
                         }
                     }
+                }
+            }
+            catch (Exception exx)
+            {
+                //Log_message?.Invoke(name + " - Thyracont parsing problem " + exx.Message.ToString());
+                //Error_deal(false, portname);
+                aaa.message = name + " - Thyracont parsing problem " + exx.Message.ToString();
+                aaa.need_error_procces = true;
+            }
+            return aaa;
+        }
+        //парсинг ответа датчика вакуума, старый протокол
+        private COM_data_Out Parse_Thyracont_old(string com_ans, int id, int portname)
+        {
+            COM_data_Out aaa = new COM_data_Out { };
+            try
+            {
+                if (com_ans.Length > 10)
+                {
+                    //TODO дописать проверки для неверные данные
+                    //if (com_ans.Substring(3, 1) != "7")
+                    //{
+                        //int data_len = int.Parse(com_ans.Substring(7, 1));
+                        Thyr_data Thyr_real_data = new Thyr_data
+                        {
+                            //pressure = float.Parse(com_ans.Substring(8, data_len))
+                            pressure = float.Parse(com_ans.Substring(4, 4))
+                        };
+                    //Log_message?.Invoke("pressure = " +Thyr_real_data.pressure.ToString());
+                    int ggg = int.Parse(com_ans.Substring(8, 2));
+                    //Log_message?.Invoke("exp = " + ggg.ToString());
+                    //Log_message?.Invoke("pow = " + Math.Pow(10, ggg - 20 - 3).ToString());
+                    Thyr_real_data.pressure = Thyr_real_data.pressure*Convert.ToSingle(Math.Pow(10, ggg-20-3));
+                    //Log_message?.Invoke("res = " + Thyr_real_data.pressure.ToString());
+                    Write_to_StateInfo(Thyr_real_data.pressure, id);
+
+                        if (Thyr_real_data.pressure >= max_min_tar_data.MIN_data_slice[id] && Thyr_real_data.pressure <= max_min_tar_data.MAX_data_slice[id])
+                        {
+                            aaa.ans = Thyr_real_data.pressure;
+                        }
+                        else
+                        {
+                            //Log_message?.Invoke(name + " - недопустимое давление на датчике" + id.ToString());
+                            //Error_deal(true, portname);
+                            aaa.message = name + " -  BAD pressure!!! " + id.ToString();
+                            aaa.need_error_procces = true;
+                            aaa.need_break = true;
+                        }
+                    //}
                 }
             }
             catch (Exception exx)
@@ -1653,7 +1964,7 @@ namespace State_Machine_FWR
                 }
                 else
                 {
-                    StateInfo.Add(comID, ans);
+                    StateInfo.TryAdd(comID, ans);
                 }
                 res = true;
             }
@@ -1860,6 +2171,44 @@ namespace State_Machine_FWR
                 }
             }
         }
+        //проверяем лежит ли значение параметра в пределах от таргет +- степ
+        public bool Check_target_reached()
+        {
+            bool ans = true;
+            //false если какой-то из параметров не достиг целевого значения
+            //true если можно двигаться
+            //берем каждый параметр в словаре целевых значений
+            foreach (KeyValuePair<int, float> kv in max_min_tar_data.TAR_data_slice)
+            {
+                if (StateInfo.ContainsKey(kv.Key) && max_min_tar_data.Step_minus.ContainsKey(kv.Key) && max_min_tar_data.Step_plus.ContainsKey(kv.Key))
+                {
+                    //Log_message?.Invoke("stateinf="+StateInfo[kv.Key].ToString());
+                    //Log_message?.Invoke("target  =" + kv.Value);
+                    //если зн больше таргета, то сравниваем с шагом-
+                    if (StateInfo[kv.Key] > kv.Value)
+                    {
+                        if (StateInfo[kv.Key] - kv.Value >= max_min_tar_data.Step_minus[kv.Key])
+                        {
+                            ans = false;
+                        }
+                    }
+                    //если зн меньше таргета, то сравниваем с шагом+
+                    if (StateInfo[kv.Key] < kv.Value)
+                    {
+                        if (kv.Value - StateInfo[kv.Key] >= max_min_tar_data.Step_plus[kv.Key])
+                        {
+                            ans = false;
+                        }
+                    }
+                }
+                else
+                {
+                    Log_message?.Invoke("no some keys = " + kv.Key.ToString());
+                    ans = false;
+                }
+            }
+            return ans;
+        }
 
         public void SetContext(State_Machine context)
         {
@@ -1926,14 +2275,20 @@ namespace State_Machine_FWR
         }
         public override void PLLL_handle()
         {
-            need_kill_all = true;
-            Kill_all_timers();
-            Log_mes?.Invoke("SS  - Go to PLLL");
-            _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes)));
-            GC.Collect();
+            //проврека достигнуты ли целевые параметры
+            if (Check_target_reached())
+            {
+                need_kill_all = true;
+                Kill_all_timers();
+                Log_mes?.Invoke("SS  - Go to PLLL");
+                _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes)));
+                GC.Collect();
+            }
+            else Log_mes?.Invoke("SS  - not all targets reached");
         }
         public override void Er_handle()
         {
+            //без проверки на достижение целевых параметров
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Er");
@@ -1942,6 +2297,7 @@ namespace State_Machine_FWR
         }
         public override void Em_handle()
         {
+            //без проверки на достижение целевых параметров
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Em");

@@ -9,6 +9,7 @@ using System.Threading;
 using System.Net;
 using System.Net.Sockets;
 using Newtonsoft.Json;
+using NLog;
 
 namespace State_Machine_FWR
 {
@@ -309,10 +310,14 @@ namespace State_Machine_FWR
         //public TcpListener tcpListemer_master;
         public CancellationTokenSource cts; 
         public CancellationToken token;
+        public static Logger Logg = LogManager.GetCurrentClassLogger();
+        //Info - только для данных с установки
+        //Debug - все события
 
         public State_Machine(State state, SM_data all_data, Log_Context_Handler logger)
         {
             Log_m = logger;
+            Logg.Debug("start State Machine");
             _Data = all_data;
             cts = new CancellationTokenSource();
             token = cts.Token;
@@ -321,10 +326,11 @@ namespace State_Machine_FWR
             //TCP_Server_async serv = new TCP_Server_async(lll);
             //serv.Run_Listener(_Data.TCP1_port);
             //TCP_Client cll = new TCP_Client();
+            Logg.Debug("start TCP server");
             StartTCPserver(token);
             //ConnectAs_clientTCP("self test");
 
-
+            Logg.Debug("start first state");
             TransitionTo(state);            
         }
         //деструктор
@@ -332,6 +338,8 @@ namespace State_Machine_FWR
         {
             cts.Cancel();
             cts.Dispose();
+            Logg.Debug("Stop State Machine");
+            LogManager.Flush();
         }
         // Контекст позволяет изменять объект Состояния во время выполнения.
         public void TransitionTo(State state)
@@ -433,6 +441,7 @@ namespace State_Machine_FWR
                     catch (Exception ex)
                     {
                         Log_m?.Invoke("exeption in serialization Process_TCP_Client\n" + ex.ToString());
+                        Logg.Debug("exeption in serialization Process_TCP_Client\n" + ex.ToString());
                     }
                     //}
                     //'state';'name of state';'можно ли залочиться для управления';'версия МАКС-МИН'
@@ -447,6 +456,7 @@ namespace State_Machine_FWR
                         is_ready_manage = true;
                     }
                     Log_m?.Invoke("Count of clients = "+Locked_TCPclient.Count.ToString());
+                    Logg.Debug("Count of clients = " + Locked_TCPclient.Count.ToString());
                     state_inf = state_inf + ";" + _state.name +";"+ is_ready_manage.ToString()+";"+_state.MAXMIN_version ;
                     
                     byte[] message = Encoding.UTF8.GetBytes(state_inf);
@@ -462,6 +472,7 @@ namespace State_Machine_FWR
                     //парсим команды полученые
                     string[] str_list = client_ask.Split(';');
                     Log_m?.Invoke("client ans = "+client_ask);
+                    Logg.Debug("client ans = " + client_ask);
                     Client_ans_Parse(str_list,c);
                 }
             }
@@ -490,6 +501,7 @@ namespace State_Machine_FWR
                             Locked_TCPclient.Add(new IPEndPoint(((IPEndPoint)cl.Client.RemoteEndPoint).Address, ((IPEndPoint)cl.Client.RemoteEndPoint).Port));
                         }
                         Log_m?.Invoke("locked client " + IPAddress.Parse(((IPEndPoint)Locked_TCPclient[0]).Address.ToString()) + ":" + ((IPEndPoint)Locked_TCPclient[0]).Port.ToString());
+                        Logg.Debug("locked client " + IPAddress.Parse(((IPEndPoint)Locked_TCPclient[0]).Address.ToString()) + ":" + ((IPEndPoint)Locked_TCPclient[0]).Port.ToString());
                         //if (((IPEndPoint)cl.Client.RemoteEndPoint).Port == Locked_TCPclient[0].Port &&
                             //((IPEndPoint)cl.Client.RemoteEndPoint).Address.ToString() == Locked_TCPclient[0].Address.ToString())
                         if (((IPEndPoint)cl.Client.RemoteEndPoint).Address.ToString() == Locked_TCPclient[0].Address.ToString())
@@ -497,6 +509,8 @@ namespace State_Machine_FWR
                             //если уже он подконнекчен - выполняем комманды
                             is_ready_manage = false;
                             Log_m?.Invoke("LOCKED\n");
+                            Logg.Debug("LOCKED");
+
                             //смена стайта
                             if (list.Length>=2 && list[1]!="")
                             {
@@ -510,9 +524,10 @@ namespace State_Machine_FWR
                             if (list.Length >= 3 && list[2] != "")
                             {
                                 Log_m?.Invoke("Парсим комманды " + list[2]);
+                                Logg.Debug("Парсим комманды " + list[2]);
                                 Dictionary<int, float> comands_in = new Dictionary<int, float>();
                                 comands_in = JsonConvert.DeserializeObject<Dictionary<int, float>>(list[2]);
-                                Log_m?.Invoke("Количество комманд = "+comands_in.Count);
+                                //Log_m?.Invoke("Количество комманд = "+comands_in.Count);
                                 if (comands_in.Count > 0)
                                 {
                                     foreach ( KeyValuePair<int,float> val in comands_in)
@@ -539,6 +554,7 @@ namespace State_Machine_FWR
                         if (Locked_TCPclient.Count==0)
                         {
                             Log_m?.Invoke("FREE\n");
+                            Logg.Debug("FREE");
                             is_ready_manage = true;
                         }
                     }
@@ -548,6 +564,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_m?.Invoke("Error in parsing TCP client answer "+ ex.Message+ex.ToString());
+                Logg.Debug("Error in parsing TCP client answer " + ex.Message + ex.ToString());
             }
         }
         //сервер
@@ -556,6 +573,7 @@ namespace State_Machine_FWR
             var tcpListerner = TcpListener.Create(7451);
             tcpListerner.Start();
             Log_m?.Invoke("server started");
+            Logg.Debug("server started");
             while (!token.IsCancellationRequested) // тут какое-то разумное условие выхода
             {
                 //Log_m("server waiting....");
@@ -569,6 +587,7 @@ namespace State_Machine_FWR
                         //клиент реален
                         //Log_m?.Invoke("Connected client: "+true_client.Client.RemoteEndPoint.ToString());
                         Log_m?.Invoke("Update remote client: " + IPAddress.Parse(((IPEndPoint)true_client.Client.RemoteEndPoint).Address.ToString()) + ":" + ((IPEndPoint)true_client.Client.RemoteEndPoint).Port.ToString());
+                        Logg.Debug("Update remote client: " + IPAddress.Parse(((IPEndPoint)true_client.Client.RemoteEndPoint).Address.ToString()) + ":" + ((IPEndPoint)true_client.Client.RemoteEndPoint).Port.ToString());
                         //Log_m?.Invoke("Connected client: " + IPAddress.Parse(((IPEndPoint)true_client.Client.LocalEndPoint).Address.ToString()) + "on port number " + ((IPEndPoint)true_client.Client.LocalEndPoint).Port.ToString());
                         //EndPoint LocAddr = true_client.Client.LocalEndPoint;
                         //LocAddr.
@@ -578,6 +597,7 @@ namespace State_Machine_FWR
                 catch (Exception ex)
                 {
                     Log_m?.Invoke("Error in TCP client awaiting \n"+ex.Message);
+                    Logg.Debug("Error in TCP client awaiting \n" + ex.Message);
                 }
             }
             tcpListerner.Stop();
@@ -634,6 +654,9 @@ namespace State_Machine_FWR
         private bool[] error_count = new bool[8] { false, false, false, false, false, false, false, false}; //false - не было ошибок
         private bool[] finished_previous = new bool[8] { true, true, true, true, true, true, true, true }; //true - если предыдущее закончено
         private int[] ini_comands_count = new int[8] { 0, 0, 0, 0, 0, 0, 0, 0 }; //количество комманд инициации
+        public Logger Log_ = LogManager.GetCurrentClassLogger();
+        //местный логгер???
+        //private static 
 
         //просто пихает в список изменение, старые перезаписываются
         public void Push_target_value(int key_target, float value_target)
@@ -677,6 +700,7 @@ namespace State_Machine_FWR
                     break;
                 default:
                     Log_message?.Invoke("we go defoault");
+                    //_context.Logg.Debug
                     break;
             }
         }
@@ -692,8 +716,6 @@ namespace State_Machine_FWR
                               Timers_settings settings,
                               COMs_settings com_settings, MAX_MIN_data_for_modules m_t_m)
         {
-            //Log_message?.Invoke("start RUNTimer");
-            //Log_message?.Invoke("Name is"+name);
             max_min_tar_data = m_t_m;
             if (list1!=null && settings.COM1_timer.period!=0)
             {
@@ -712,6 +734,9 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_1.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_1.Name);
+                    //_context.
+                    //_context.
                 }
             }
             if (list2 != null && settings.COM2_timer.period != 0)
@@ -731,6 +756,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_2.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_2.Name);
                 }
             }
             if (list3 != null && settings.COM3_timer.period != 0)
@@ -750,6 +776,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_3.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_3.Name);
                 }
             }
             if (list4 != null && settings.COM4_timer.period != 0)
@@ -769,6 +796,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_4.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_4.Name);
                 }
             }
             if (list5 != null && settings.COM5_timer.period != 0)
@@ -788,6 +816,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_5.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_5.Name);
                 }
             }
             if (list6 != null && settings.COM6_timer.period != 0)
@@ -807,6 +836,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_6.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_6.Name);
                 }
             }
             if (list7 != null && settings.COM7_timer.period != 0)
@@ -826,6 +856,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_7.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_7.Name);
                 }
             }
             if (list8 != null && settings.COM8_timer.period != 0)
@@ -845,6 +876,7 @@ namespace State_Machine_FWR
                 catch
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_8.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_8.Name);
                 }
             }
 
@@ -920,6 +952,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -948,6 +981,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -976,6 +1010,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 3" + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 3 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -1004,6 +1039,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -1033,6 +1069,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 5 "+ ex.Message.ToString()+"\n"+ex.ToString());
+                Log_.Error("exeption timer 5 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -1061,6 +1098,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -1089,6 +1127,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -1117,6 +1156,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
+                Log_.Error("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
             }
             finally
             {
@@ -1153,11 +1193,13 @@ namespace State_Machine_FWR
                 ans=-999
             };            
             Log_message?.Invoke(name + " send" + port.PortName + ": " + comand.read_data_COM);
+            Log_.Debug(name + " send" + port.PortName + ": " + comand.read_data_COM);
             var a_com_ans = Send_command_to_COM_async(comand.read_data_COM, port, comand.is_cr);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
                 Log_message?.Invoke(name + " recv" + port.PortName + ": " + com_ans);
+                Log_.Debug(name + " recv" + port.PortName + ": " + com_ans);
                 if (com_ans != "timeout" && com_ans != "port closed" && com_ans != "")
                 {
                     //если получен ответ -парсим данные по ИД команды + пишем в стайт                    
@@ -1211,6 +1253,7 @@ namespace State_Machine_FWR
                             if (out_dat.need_break)
                             {
                                 Log_message?.Invoke(port.PortName + " critical error, " + out_dat.message);
+                                Log_.Error(port.PortName + " critical error, " + out_dat.message);
                                 Error_deal(true, num_loop);
                                 finished_previous[num_loop] = true;
                                 break;
@@ -1233,6 +1276,7 @@ namespace State_Machine_FWR
                                 else
                                 {
                                     Log_message?.Invoke(port.PortName + " error, " + out_dat.message);
+                                    Log_.Error(port.PortName + " error, " + out_dat.message);
                                     Error_deal(false, num_loop);
                                     finished_previous[num_loop] = true;
                                     break;
@@ -1501,6 +1545,7 @@ namespace State_Machine_FWR
                     int dat_len = int.Parse(ans.Substring(8, 2));
                     aaa.ans = float.Parse(ans.Substring(10, dat_len));
                     Log_message?.Invoke("pfeiffer val "+id.ToString()+" = "+aaa.ans);
+                    Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans);
                     Write_to_StateInfo(aaa.ans, id);
                 }
             }
@@ -1971,6 +2016,7 @@ namespace State_Machine_FWR
             catch (Exception ex)
             {
                 Log_message?.Invoke(name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
+                Log_.Error(name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
             }
             return res;
         }
@@ -2019,12 +2065,14 @@ namespace State_Machine_FWR
             //конструируем строку ответа
             string cc = Command_construct(com, data.ToString());
             //шлем команду на запись
+            Log_.Error(name + " send" + port.PortName + ": " + cc);
             Log_message?.Invoke(name + " send" + port.PortName + ": " + cc);
             //string com_ans = Send_command_to_COM(cc, port, com.is_cr);
             var a_com_ans = Send_command_to_COM_async(cc, port, com.is_cr);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
+                Log_.Error(name + " rcv" + port.PortName + ": " + com_ans);
                 Log_message?.Invoke(name + " rcv" + port.PortName + ": " + com_ans);
                 //проверяем ответ на команду записи
                 //TODO
@@ -2033,6 +2081,7 @@ namespace State_Machine_FWR
             {
                 //TODO обработка ошибки
                 Log_message?.Invoke(name + " - readtask for write was Faulted " + port.PortName);
+                Log_.Error(name + " - readtask for write was Faulted " + port.PortName);
             }
         }
         //расчет контрольной суммы для Pfeiffer
@@ -2122,22 +2171,46 @@ namespace State_Machine_FWR
         //убиваем все запущенные таймеры
         public void Kill_all_timers()
         {
-            if (Kill_One_timer(COM1_timer, _serialPort_1,event_1))
-                Log_message?.Invoke(name+" timer 1 killed");
+            if (Kill_One_timer(COM1_timer, _serialPort_1, event_1))
+            {
+                Log_message?.Invoke(name + " timer 1 killed");
+                Log_.Debug(name + " timer 1 killed");
+            }
             if (Kill_One_timer(COM2_timer, _serialPort_2, event_2))
+            {
                 Log_message?.Invoke(name + " timer 2 killed");
+                Log_.Error(name + " timer 2 killed");
+            }
             if (Kill_One_timer(COM3_timer, _serialPort_3, event_3))
+            {
                 Log_message?.Invoke(name + " timer 3 killed");
+                Log_.Error(name + " timer 3 killed");
+            }
             if (Kill_One_timer(COM4_timer, _serialPort_4, event_4))
+            {
                 Log_message?.Invoke(name + " timer 4 killed");
+                Log_.Error(name + " timer 4 killed");
+            }
             if (Kill_One_timer(COM5_timer, _serialPort_5, event_5))
+                {
                 Log_message?.Invoke(name + " timer 5 killed");
+                Log_.Error(name + " timer 5 killed");
+            }
             if (Kill_One_timer(COM6_timer, _serialPort_6, event_6))
+                {
                 Log_message?.Invoke(name + " timer 6 killed");
+                Log_.Error(name + " timer 6 killed");
+            }
             if (Kill_One_timer(COM7_timer, _serialPort_7, event_7))
+                {
                 Log_message?.Invoke(name + " timer 7 killed");
+                Log_.Error(name + " timer 7 killed");
+            }
             if (Kill_One_timer(COM8_timer, _serialPort_8, event_8))
+                {
                 Log_message?.Invoke(name + " timer 8 killed");
+                Log_.Error(name + " timer 8 killed");
+            }
             //останавливаем TCP
             //if (TCP_timer!=null)
             //{
@@ -2160,12 +2233,14 @@ namespace State_Machine_FWR
                 if (error_count[portnum])
                 {
                     Log_message?.Invoke("second error in port"+ portnum.ToString());
+                    Log_.Error("second error in port" + portnum.ToString());
                     //error_count[portnum] = false;
                     Er_handle();
                 }
                 else
                 {
                     Log_message?.Invoke("first error - wait next, port = "+ portnum.ToString());
+                    Log_.Error("first error - wait next, port = " + portnum.ToString());
                     error_count[portnum] = true;
                     //skip_flag[portnum] = true;
                 }
@@ -2204,6 +2279,7 @@ namespace State_Machine_FWR
                 else
                 {
                     Log_message?.Invoke("no some keys = " + kv.Key.ToString());
+                    Log_.Error("no some keys = " + kv.Key.ToString());
                     ans = false;
                 }
             }
@@ -2236,6 +2312,7 @@ namespace State_Machine_FWR
             Log_mes = Logger;
             this.name = "SS";
             Log_mes?.Invoke("State " + this.name + " was created");
+            Log_.Debug("State " + this.name + " was created");
             this.MAXMIN_version = SS_st_data.MAX_MIN_version;
             //this.IP_adress = State_Machine._Data.IP_adress_port;
             need_kill_all = false;
@@ -2268,10 +2345,12 @@ namespace State_Machine_FWR
         public override void SS_handle()
         {
             Log_mes?.Invoke("SS - do nothing");
+            Log_.Debug("SS - do nothing");
         }
         public override void PHLL_handle()
         {
             Log_mes?.Invoke("PHLL - forbidden - do nothing");
+            Log_.Debug("PHLL - forbidden - do nothing");
         }
         public override void PLLL_handle()
         {
@@ -2281,10 +2360,15 @@ namespace State_Machine_FWR
                 need_kill_all = true;
                 Kill_all_timers();
                 Log_mes?.Invoke("SS  - Go to PLLL");
+                Log_.Debug("SS  - Go to PLLL");
                 _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes)));
                 GC.Collect();
             }
-            else Log_mes?.Invoke("SS  - not all targets reached");
+            else
+            {
+                Log_mes?.Invoke("SS  - not all targets reached");
+                Log_.Debug("SS  - not all targets reached");
+            }
         }
         public override void Er_handle()
         {
@@ -2292,6 +2376,7 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Er");
+            Log_.Debug("SS  - Go to Er");
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2301,6 +2386,7 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Em");
+            Log_.Debug("SS  - Go to Em");
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2317,6 +2403,7 @@ namespace State_Machine_FWR
             //Log_message("");
             this.name = "Er";
             Log_mes?.Invoke("State "+this.name +" was created");
+            Log_.Debug("State " + this.name + " was created");
             this.MAXMIN_version = Er_st_data.MAX_MIN_version;
             need_kill_all = false;
             //грузим списки комманд для разных СОМов
@@ -2348,28 +2435,33 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("Er  - Go to SS");
+            Log_.Debug("Er  - Go to SS");
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
         public override void Er_handle()
         {
             Log_mes?.Invoke("Er - do nothing");
+            Log_.Debug("Er - do nothing");
         }
         public override void PLLL_handle()
         {
             Log_mes?.Invoke("Er - PLLL is forbidden - do nothing");
+            Log_.Debug("Er - PLLL is forbidden - do nothing");
         }
         public override void Em_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("Er  - Go to Em");
+            Log_.Debug("Er  - Go to Em");
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
         public override void PHLL_handle()
         {
             Log_mes?.Invoke("Er - PHLL is forbidden - do nothing");
+            Log_.Debug("Er - PHLL is forbidden - do nothing");
         }
     }
     public class Em_state : State
@@ -2383,7 +2475,8 @@ namespace State_Machine_FWR
             Log_mes = Logger;
             //Log_message("");
             this.name = "Em";
-            Log_mes?.Invoke("State " + this.name + " was created");            
+            Log_mes?.Invoke("State " + this.name + " was created");
+            Log_.Debug("State " + this.name + " was created");
             this.MAXMIN_version = Em_st_data.MAX_MIN_version;
             need_kill_all = false;
             //грузим списки комманд для разных СОМов
@@ -2416,24 +2509,29 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("Em  - Go to SS");
+            Log_.Debug("Em  - Go to SS");
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
         public override void Er_handle()
         {
             Log_mes?.Invoke("Em - Er is forbidden - do nothing");
+            Log_.Debug("Em - Er is forbidden - do nothing");
         }
         public override void PLLL_handle()
         {
             Log_mes?.Invoke("Em - PLLL is forbidden - do nothing");
+            Log_.Debug("Em - PLLL is forbidden - do nothing");
         }
         public override void Em_handle()
         {
             Log_mes?.Invoke("Em - do nothing");
+            Log_.Debug("Em - do nothing");
         }
         public override void PHLL_handle()
         {
             Log_mes?.Invoke("Em - PHLL is forbidden - do nothing");
+            Log_.Debug("Em - PHLL is forbidden - do nothing");
         }
     }
     public class PLLL_state : State
@@ -2446,6 +2544,7 @@ namespace State_Machine_FWR
             Log_mes = Logger;
             this.name = "PLLL";
             Log_mes?.Invoke("State " + this.name + " was created");
+            Log_.Debug("State " + this.name + " was created");
             this.MAXMIN_version = PLLL_st_data.MAX_MIN_version;
             //this.IP_adress = State_Machine._Data.IP_adress_port;
             need_kill_all = false;
@@ -2480,6 +2579,7 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to SS");
+            Log_.Debug("PLLL  - Go to SS");
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2488,18 +2588,21 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to PHLL");
+            Log_.Debug("PLLL  - Go to PHLL");
             _context.TransitionTo(new PHLL_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
         public override void PLLL_handle()
         {
             Log_mes?.Invoke("PLLL - do nothing");
+            Log_.Debug("PLLL - do nothing");
         }
         public override void Er_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to Er");
+            Log_.Debug("PLLL  - Go to Er");
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2508,6 +2611,7 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to Em");
+            Log_.Debug("PLLL  - Go to Em");
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2522,6 +2626,7 @@ namespace State_Machine_FWR
             Log_mes = Logger;
             this.name = "PHLL";
             Log_mes?.Invoke("State " + this.name + " was created");
+            Log_.Debug("State " + this.name + " was created");
             this.MAXMIN_version = PHLL_st_data.MAX_MIN_version;
             //this.IP_adress = State_Machine._Data.IP_adress_port;
             need_kill_all = false;
@@ -2554,16 +2659,19 @@ namespace State_Machine_FWR
         public override void SS_handle()
         {
             Log_mes?.Invoke("PHLL - SS is forbidden - do nothing");
+            Log_.Debug("PHLL - SS is forbidden - do nothing");
         }
         public override void PHLL_handle()
         {
             Log_mes?.Invoke("PHLL - do nothing");
+            Log_.Debug("PHLL - do nothing");
         }
         public override void PLLL_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to PLLL");
+            Log_.Debug("PHLL  - Go to PLLL");
             _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2572,6 +2680,7 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to Er");
+            Log_.Debug("PHLL  - Go to Er");
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }
@@ -2580,6 +2689,7 @@ namespace State_Machine_FWR
             need_kill_all = true;
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to Em");
+            Log_.Debug("PHLL  - Go to Em");
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
             GC.Collect();
         }

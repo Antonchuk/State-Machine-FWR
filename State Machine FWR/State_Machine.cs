@@ -300,7 +300,7 @@ namespace State_Machine_FWR
     public class State_Machine
     {
         public State _state = null; //изменен модификатор c private to public 
-        public static SM_data _Data;
+        public SM_data _Data;
         public delegate void Log_Context_Handler(string mess);
         public event Log_Context_Handler Log_m;
         public static bool is_listening = true;
@@ -313,12 +313,18 @@ namespace State_Machine_FWR
         public static Logger Logg = LogManager.GetCurrentClassLogger();
         //Info - только для данных с установки
         //Debug - все события
+        //сохраняем все таргеты в отдельный файл для их подгрузки при новых состояниях
+        public readonly SM_data _reserved;
 
         public State_Machine(State state, SM_data all_data, Log_Context_Handler logger)
         {
             Log_m = logger;
             Logg.Debug("start State Machine");
+            _Data = new SM_data();
             _Data = all_data;
+            //SM_data temp_data = new SM_data();
+            //_reserved = new SM_data();
+            _reserved = all_data;
             cts = new CancellationTokenSource();
             token = cts.Token;
             //зпускаем сервак            
@@ -344,6 +350,14 @@ namespace State_Machine_FWR
         // Контекст позволяет изменять объект Состояния во время выполнения.
         public void TransitionTo(State state)
         {
+            //обновляем все таргеты на те, что стоят в файлах
+            //_Data.st_Em.max_min_target.TAR_data_slice = _reserved.st_Em.max_min_target.TAR_data_slice;
+            //_Data.st_Er.max_min_target.TAR_data_slice = _reserved.st_Er.max_min_target.TAR_data_slice;
+            //_Data.st_PHLL.max_min_target.TAR_data_slice = _reserved.st_PHLL.max_min_target.TAR_data_slice;
+            //_Data.st_PLLL.max_min_target.TAR_data_slice = _reserved.st_PLLL.max_min_target.TAR_data_slice;
+            //_Data.st_SS.max_min_target.TAR_data_slice = _reserved.st_SS.max_min_target.TAR_data_slice;
+
+
             _state = state;
             //ConnectAs_clientTCP("TCP info next state is "+state.name);
             //state.StateInfo
@@ -1046,6 +1060,15 @@ namespace State_Machine_FWR
                 //Log_message?.Invoke("block finally");
             }
         }
+        public string Str_get_from_dict(ConcurrentDictionary<int,float> t)
+        {
+            string ans="";
+            foreach (var n in  t)
+            {
+                ans += n.Key.ToString() + " " + n.Value.ToString() + ";";
+            }
+            return ans;
+        }
         //тик для таймера 5
         private void Tick_com5(object state)
         {
@@ -1059,6 +1082,8 @@ namespace State_Machine_FWR
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
                     COM_ask(data.port, data.list, first_loop5, 5);
                     if (first_loop5) first_loop5 = false;
+                    //string str = Str_get_from_dict();
+                    //Log_.Trace(Str_get_from_dict(Push_target_list));
                 }
                 else
                 {
@@ -1711,11 +1736,7 @@ namespace State_Machine_FWR
                 //если в переделах нормы - сравниваем нужно ли менять значение
                 if (max_min_tar_data.TAR_data_slice.ContainsKey(com.id) && ans < max_min_tar_data.TAR_data_slice[com.id])
                 {
-                    //если шаг не выйдет за пределы макс/мин
-                    //test
-                    //if (com.id == 23)
-                        //Log_message("asc ans+ step = "+(ans+com.target_step_plus).ToString());
-                    //test
+                    //если шаг не выйдет за пределы макс/мин                    
                     if ((ans + max_min_tar_data.Step_plus[com.id]) <= max_min_tar_data.MAX_data_slice[com.id] &&
                             (ans + max_min_tar_data.Step_plus[com.id]) <= max_min_tar_data.TAR_data_slice[com.id])
                     {
@@ -1727,10 +1748,6 @@ namespace State_Machine_FWR
                 {
                     if (ans > max_min_tar_data.TAR_data_slice[com.id])
                         //если шаг не выйдет за пределы макс/мин
-                        //test
-                        //if (com.id == 23)
-                            //Log_message("desc ans+ step = " + (ans - com.target_step_minus).ToString());
-                        //test
                     if ((ans - max_min_tar_data.Step_minus[com.id]) >= max_min_tar_data.MIN_data_slice[com.id] &&
                                 (ans - max_min_tar_data.Step_minus[com.id]) >= max_min_tar_data.TAR_data_slice[com.id])
                         {
@@ -1739,7 +1756,22 @@ namespace State_Machine_FWR
                         }
                 }
             }
-            //TODO сделать попытку взрата к нормальному значению
+            else
+            {
+                //пытаемся вернуться к целевым занчениям
+                if (ans < max_min_tar_data.MIN_data_slice[com.id])
+                {                                        
+                    //делаем шаг вперед
+                    COM_write(com, port, ans + max_min_tar_data.Step_plus[com.id]);                    
+                }
+                else
+                {
+                    if (ans > max_min_tar_data.MAX_data_slice[com.id])
+                        COM_write(com, port, ans - max_min_tar_data.Step_minus[com.id]);
+
+                }
+            }
+            
         }
         //проверка ответа ИБП
         private COM_data_Out Compare_UPS_DQ1(UPS_data real_d,int portname)
@@ -2065,14 +2097,14 @@ namespace State_Machine_FWR
             //конструируем строку ответа
             string cc = Command_construct(com, data.ToString());
             //шлем команду на запись
-            Log_.Error(name + " send" + port.PortName + ": " + cc);
+            Log_.Debug(name + " send" + port.PortName + ": " + cc);
             Log_message?.Invoke(name + " send" + port.PortName + ": " + cc);
             //string com_ans = Send_command_to_COM(cc, port, com.is_cr);
             var a_com_ans = Send_command_to_COM_async(cc, port, com.is_cr);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
-                Log_.Error(name + " rcv" + port.PortName + ": " + com_ans);
+                Log_.Debug(name + " rcv" + port.PortName + ": " + com_ans);
                 Log_message?.Invoke(name + " rcv" + port.PortName + ": " + com_ans);
                 //проверяем ответ на команду записи
                 //TODO
@@ -2305,9 +2337,11 @@ namespace State_Machine_FWR
     public class SS_state : State
     {
         private event Log_Handler Log_mes;
-        public SS_state(Log_Handler Logger)
+        public SS_state(Log_Handler Logger, State_data s_data)
         {
-            State_data SS_st_data = State_Machine._Data.st_SS;
+            State_data SS_st_data = s_data;
+            //if (_context._Data != null)
+                //SS_st_data = _context._Data.st_SS;
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "SS";
@@ -2361,7 +2395,8 @@ namespace State_Machine_FWR
                 Kill_all_timers();
                 Log_mes?.Invoke("SS  - Go to PLLL");
                 Log_.Debug("SS  - Go to PLLL");
-                _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes)));
+                _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
                 GC.Collect();
             }
             else
@@ -2377,7 +2412,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Er");
             Log_.Debug("SS  - Go to Er");
-            _context.TransitionTo(new Er_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
         public override void Em_handle()
@@ -2387,17 +2423,20 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Em");
             Log_.Debug("SS  - Go to Em");
-            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
     }
     public class Er_state : State
     {
         public event Log_Handler Log_mes;
-        public Er_state(Log_Handler Logger)
+        public Er_state(Log_Handler Logger, State_data s_data)
         {
-            //делаем словарь команд            
-            State_data Er_st_data = State_Machine._Data.st_Er;
+            //делаем словарь команд
+            State_data Er_st_data = s_data;
+            //if (_context._Data != null)
+                //Er_st_data = _context._Data.st_Er;            
             this.Log_message += Logger;
             Log_mes = Logger;
             //Log_message("");
@@ -2436,7 +2475,9 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("Er  - Go to SS");
             Log_.Debug("Er  - Go to SS");
-            _context.TransitionTo(new SS_state(new Log_Handler(Log_mes)));
+            _context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            //Log_.Trace(_context._Data.st_SS.max_min_target.TAR_data_slice[16].ToString());
+            _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
             GC.Collect();
         }
         public override void Er_handle()
@@ -2455,7 +2496,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("Er  - Go to Em");
             Log_.Debug("Er  - Go to Em");
-            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
         public override void PHLL_handle()
@@ -2467,10 +2509,12 @@ namespace State_Machine_FWR
     public class Em_state : State
     {       
         public event Log_Handler Log_mes;        
-        public Em_state(Log_Handler Logger)
+        public Em_state(Log_Handler Logger, State_data s_data)
         {
-            //делаем словарь команд            
-            State_data Em_st_data = State_Machine._Data.st_Em;
+            //делаем словарь команд
+            State_data Em_st_data = s_data;
+            //if (_context != null)
+                //Em_st_data = _context._Data.st_Em;
             this.Log_message += Logger;
             Log_mes = Logger;
             //Log_message("");
@@ -2510,7 +2554,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("Em  - Go to SS");
             Log_.Debug("Em  - Go to SS");
-            _context.TransitionTo(new SS_state(new Log_Handler(Log_mes)));
+            _context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new SS_state(new Log_Handler(Log_mes),_context._Data.st_SS));
             GC.Collect();
         }
         public override void Er_handle()
@@ -2537,9 +2582,11 @@ namespace State_Machine_FWR
     public class PLLL_state : State
     {
         private event Log_Handler Log_mes;
-        public PLLL_state(Log_Handler Logger)
+        public PLLL_state(Log_Handler Logger, State_data s_data)
         {
-            State_data PLLL_st_data = State_Machine._Data.st_PLLL;
+            State_data PLLL_st_data = s_data;
+            //if (_context != null)
+                //PLLL_st_data = _context._Data.st_PLLL;
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "PLLL";
@@ -2580,7 +2627,12 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to SS");
             Log_.Debug("PLLL  - Go to SS");
-            _context.TransitionTo(new SS_state(new Log_Handler(Log_mes)));
+            Log_.Trace("old target slice");
+            Log_.Trace(Str_get_from_dict(_context._Data.st_SS.max_min_target.TAR_data_slice));
+            Log_.Trace("reserved target slice");
+            Log_.Trace(Str_get_from_dict(_context._reserved.st_SS.max_min_target.TAR_data_slice));
+            _context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new SS_state(new Log_Handler(Log_mes),_context._Data.st_SS));
             GC.Collect();
         }
         public override void PHLL_handle()
@@ -2589,7 +2641,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to PHLL");
             Log_.Debug("PLLL  - Go to PHLL");
-            _context.TransitionTo(new PHLL_state(new Log_Handler(Log_mes)));
+            _context._Data.st_PHLL.max_min_target.TAR_data_slice = _context._reserved.st_PHLL.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new PHLL_state(new Log_Handler(Log_mes), _context._Data.st_PHLL));
             GC.Collect();
         }
         public override void PLLL_handle()
@@ -2603,7 +2656,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to Er");
             Log_.Debug("PLLL  - Go to Er");
-            _context.TransitionTo(new Er_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
         public override void Em_handle()
@@ -2612,16 +2666,17 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to Em");
             Log_.Debug("PLLL  - Go to Em");
-            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
     }
     public class PHLL_state : State
     {
         private event Log_Handler Log_mes;
-        public PHLL_state(Log_Handler Logger)
+        public PHLL_state(Log_Handler Logger, State_data s_data)
         {
-            State_data PHLL_st_data = State_Machine._Data.st_PHLL;
+            State_data PHLL_st_data = s_data;
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "PHLL";
@@ -2672,7 +2727,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to PLLL");
             Log_.Debug("PHLL  - Go to PLLL");
-            _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes)));
+            _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
             GC.Collect();
         }
         public override void Er_handle()
@@ -2681,7 +2737,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to Er");
             Log_.Debug("PHLL  - Go to Er");
-            _context.TransitionTo(new Er_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
         public override void Em_handle()
@@ -2690,7 +2747,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to Em");
             Log_.Debug("PHLL  - Go to Em");
-            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes)));
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
     }

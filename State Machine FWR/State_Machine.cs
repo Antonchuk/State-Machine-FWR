@@ -314,7 +314,9 @@ namespace State_Machine_FWR
         //Info - только для данных с установки
         //Debug - все события
         //сохраняем все таргеты в отдельный файл для их подгрузки при новых состояниях
-        public readonly SM_data _reserved;
+        //public readonly SM_data _reserved;
+        private static ConcurrentDictionary<int, ConcurrentDictionary<int, float>> _list_of_targets;//
+        //public const ConcurrentDictionary<int, ConcurrentDictionary<int, float>> test_bitch = (1, all_data.st_Em.max_min_target.TAR_data_slice);
 
         public State_Machine(State state, SM_data all_data, Log_Context_Handler logger)
         {
@@ -324,7 +326,14 @@ namespace State_Machine_FWR
             _Data = all_data;
             //SM_data temp_data = new SM_data();
             //_reserved = new SM_data();
-            _reserved = all_data;
+            //_reserved = all_data;
+            _list_of_targets = new ConcurrentDictionary<int, ConcurrentDictionary<int, float>>();
+            _list_of_targets.TryAdd(1,all_data.st_Em.max_min_target.TAR_data_slice);
+            _list_of_targets.TryAdd(2,all_data.st_Er.max_min_target.TAR_data_slice);
+            _list_of_targets.TryAdd(3,all_data.st_PLLL.max_min_target.TAR_data_slice);
+            _list_of_targets.TryAdd(4,all_data.st_PHLL.max_min_target.TAR_data_slice);
+            _list_of_targets.TryAdd(5,all_data.st_SS.max_min_target.TAR_data_slice);
+
             cts = new CancellationTokenSource();
             token = cts.Token;
             //зпускаем сервак            
@@ -347,6 +356,13 @@ namespace State_Machine_FWR
             Logg.Debug("Stop State Machine");
             LogManager.Flush();
         }
+        //
+        public ConcurrentDictionary<int, float> Got_target_data(int num)
+        {
+
+            return _list_of_targets[num];
+        }
+
         // Контекст позволяет изменять объект Состояния во время выполнения.
         public void TransitionTo(State state)
         {
@@ -2395,7 +2411,8 @@ namespace State_Machine_FWR
                 Kill_all_timers();
                 Log_mes?.Invoke("SS  - Go to PLLL");
                 Log_.Debug("SS  - Go to PLLL");
-                _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context.Got_target_data(3);
                 _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
                 GC.Collect();
             }
@@ -2412,7 +2429,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Er");
             Log_.Debug("SS  - Go to Er");
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_data(2);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -2423,7 +2441,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("SS  - Go to Em");
             Log_.Debug("SS  - Go to Em");
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_data(1);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -2475,7 +2494,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("Er  - Go to SS");
             Log_.Debug("Er  - Go to SS");
-            _context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            _context._Data.st_SS.max_min_target.TAR_data_slice = _context.Got_target_data(5);
             //Log_.Trace(_context._Data.st_SS.max_min_target.TAR_data_slice[16].ToString());
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
             GC.Collect();
@@ -2496,7 +2516,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("Er  - Go to Em");
             Log_.Debug("Er  - Go to Em");
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_data(1);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -2554,7 +2575,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("Em  - Go to SS");
             Log_.Debug("Em  - Go to SS");
-            _context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            _context._Data.st_SS.max_min_target.TAR_data_slice = _context.Got_target_data(5);
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes),_context._Data.st_SS));
             GC.Collect();
         }
@@ -2627,11 +2649,12 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to SS");
             Log_.Debug("PLLL  - Go to SS");
-            Log_.Trace("old target slice");
-            Log_.Trace(Str_get_from_dict(_context._Data.st_SS.max_min_target.TAR_data_slice));
-            Log_.Trace("reserved target slice");
-            Log_.Trace(Str_get_from_dict(_context._reserved.st_SS.max_min_target.TAR_data_slice));
-            _context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            //Log_.Trace("old target slice");
+            //Log_.Trace(Str_get_from_dict(_context._Data.st_SS.max_min_target.TAR_data_slice));
+            //Log_.Trace("reserved target slice");
+            //Log_.Trace(Str_get_from_dict(_context._reserved.st_SS.max_min_target.TAR_data_slice));
+            //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            _context._Data.st_SS.max_min_target.TAR_data_slice = _context.Got_target_data(5);
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes),_context._Data.st_SS));
             GC.Collect();
         }
@@ -2641,7 +2664,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to PHLL");
             Log_.Debug("PLLL  - Go to PHLL");
-            _context._Data.st_PHLL.max_min_target.TAR_data_slice = _context._reserved.st_PHLL.max_min_target.TAR_data_slice;
+            _context._Data.st_PHLL.max_min_target.TAR_data_slice = _context.Got_target_data(4);
+            //_context._Data.st_PHLL.max_min_target.TAR_data_slice = _context._reserved.st_PHLL.max_min_target.TAR_data_slice;
             _context.TransitionTo(new PHLL_state(new Log_Handler(Log_mes), _context._Data.st_PHLL));
             GC.Collect();
         }
@@ -2656,7 +2680,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to Er");
             Log_.Debug("PLLL  - Go to Er");
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_data(2);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -2666,7 +2691,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PLLL  - Go to Em");
             Log_.Debug("PLLL  - Go to Em");
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_data(1);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -2727,7 +2753,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to PLLL");
             Log_.Debug("PHLL  - Go to PLLL");
-            _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+            //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+            _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context.Got_target_data(3);
             _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
             GC.Collect();
         }
@@ -2737,7 +2764,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to Er");
             Log_.Debug("PHLL  - Go to Er");
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_data(2);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -2747,7 +2775,8 @@ namespace State_Machine_FWR
             Kill_all_timers();
             Log_mes?.Invoke("PHLL  - Go to Em");
             Log_.Debug("PHLL  - Go to Em");
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_data(1);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }

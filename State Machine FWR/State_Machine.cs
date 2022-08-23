@@ -277,7 +277,7 @@ namespace State_Machine_FWR
         /// <param name="name"></param>
         /// <param name="path"></param>
         /// <returns></returns>
-        public ConcurrentDictionary<int, float> Got_target_list_default(string name, string path)
+        public State_data Got_target_list_default(string name, string path)
         {
             State_data temp = new State_data();
             switch (name)
@@ -307,7 +307,7 @@ namespace State_Machine_FWR
                     temp = De_serialize(path, "\\State_HVSB_Settings.json");
                     break;
             }
-            return temp.max_min_target.TAR_data_slice;
+            return temp;
         }
         //десериалиатор настроек
         private State_data De_serialize(string path, string name)
@@ -436,9 +436,10 @@ namespace State_Machine_FWR
                     //ждем запроса клиента
                     var buffer_in = new byte[1024];
                     var byte_count = await TCPstream.ReadAsync(buffer_in, 0, buffer_in.Length, ttt);
-                    string client_q = Encoding.ASCII.GetString(buffer_in, 0, byte_count);
+                    string client_q = Encoding.UTF8.GetString(buffer_in, 0, byte_count);
+                    //string client_q = Encoding.ASCII.GetString(buffer_in, 0, byte_count);
                     Logg.Trace("Client "+ IP_cl + "= " + client_q);
-                    if (client_q != "")
+                    /*if (client_q != "")
                     {
                         string m = "default string";
                         try
@@ -464,6 +465,23 @@ namespace State_Machine_FWR
                     }
                     else
                         ans = false;
+                    */
+                    ans = true;
+                    Client_ans_Parse(client_q);
+                    string m = "default string";
+                    try
+                    {
+                        m = JsonConvert.SerializeObject(TCP_message_construct());
+                    }
+                    catch (Exception ex)
+                    {
+                        Logg.Trace("exeption in serialization\n" + ex.ToString());
+                    }
+                    //byte[] message = Encoding.ASCII.GetBytes(m);
+                    byte[] message = Encoding.UTF8.GetBytes(m);
+                    //пишем ему ответ
+                    Logg.Trace("Server = " + m);
+                    await TCPstream.WriteAsync(message, 0, message.Length, ttt);
                 }
                 catch (IOException ex)
                 {
@@ -801,13 +819,13 @@ namespace State_Machine_FWR
                 };
                 try
                 {
-                    _serialPort_3.Open();
+                    _serialPort_4.Open();
                     COM4_timer = new Timer(ticker_com4, com4_data, settings.COM4_timer.start_delay, settings.COM4_timer.period);
                 }
-                catch
+                catch (Exception ex)
                 {
                     Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_4.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_4.Name);
+                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_4.Name+"\n Error = "+ex.ToString());
                 }
             }
             if (list5 != null && settings.COM5_timer.period != 0)
@@ -902,7 +920,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop1, 1);
+                    COM_ask(data.port, data.list, first_loop1, 0);
                     if (first_loop1) first_loop1 = false;
                 }
                 else
@@ -931,7 +949,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop2, 2);
+                    COM_ask(data.port, data.list, first_loop2, 1);
                     if (first_loop2) first_loop2 = false;
                 }
                 else
@@ -960,7 +978,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop3, 3);
+                    COM_ask(data.port, data.list, first_loop3, 2);
                     if (first_loop3) first_loop3 = false;
                 }
                 else
@@ -989,7 +1007,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop4, 4);
+                    COM_ask(data.port, data.list, first_loop4, 3);
                     if (first_loop4) first_loop4 = false;
                 }
                 else
@@ -1028,7 +1046,7 @@ namespace State_Machine_FWR
                 {
                     //Log_message?.Invoke("tick timer 5");
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop5, 5);
+                    COM_ask(data.port, data.list, first_loop5, 4);
                     if (first_loop5) first_loop5 = false;
                     //string str = Str_get_from_dict();
                     //Log_.Trace(Str_get_from_dict(Push_target_list));
@@ -1059,7 +1077,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop6, 6);
+                    COM_ask(data.port, data.list, first_loop6, 5);
                     if (first_loop6) first_loop6 = false;
                 }
                 else
@@ -1088,7 +1106,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop7, 7);
+                    COM_ask(data.port, data.list, first_loop7, 6);
                     if (first_loop7) first_loop7 = false;
                 }
                 else
@@ -1117,7 +1135,7 @@ namespace State_Machine_FWR
                 if (!need_kill_all)
                 {
                     Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop8, 8);
+                    COM_ask(data.port, data.list, first_loop8, 7);
                     if (first_loop8) first_loop8 = false;
                 }
                 else
@@ -1158,6 +1176,14 @@ namespace State_Machine_FWR
             port.WriteTimeout = portsett.Writetimeout;
             //if (COMs_setting.COM_port_1.is)
             if (portsett.EndLine != null) port.NewLine = portsett.EndLine;
+            //port.Handshake.
+            //КОСТЫЛЬ
+            if (portsett.Name == "COM2")
+            {
+                //port.Handshake = Handshake.RequestToSendXOnXOff;
+                port.DtrEnable = true;
+                port.RtsEnable = true;                
+            }
             return port;
         }
         //запрос чтения параметра и получение ответа
@@ -1171,7 +1197,7 @@ namespace State_Machine_FWR
             };
             Log_message?.Invoke(name + " send" + port.PortName + ": " + comand.read_data_COM);
             Log_.Debug(name + " send" + port.PortName + ": " + comand.read_data_COM);
-            var a_com_ans = Send_command_to_COM_async(comand.read_data_COM, port);
+            var a_com_ans = Send_command_to_COM_async(comand.read_data_COM, port, comand.is_complex_parse);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
@@ -1209,7 +1235,6 @@ namespace State_Machine_FWR
         {
             //счетчик успешных циклов
             int inloop_suc = 0;
-            //if (num_loop == 5) Log_message?.Invoke("FUG previos finished = "+finished_previous[num_loop].ToString());
             //берем список команд, опрашиваем каждую из них
             if (port.IsOpen && commands != null && finished_previous[num_loop])
             {
@@ -1291,6 +1316,7 @@ namespace State_Machine_FWR
                 case 8:
                     //это команда ИБП - парсим как ИБП
                     oout_data = Parse_UPS_DQ1(real_ans, portname);
+
                     break;
                 case 10:
                 case 12:
@@ -1362,6 +1388,7 @@ namespace State_Machine_FWR
                 case 78:
                 case 80:
                 case 81:
+                case 82:
                 case 98:
                 case 99:
                 case 100:
@@ -1401,9 +1428,204 @@ namespace State_Machine_FWR
                     //DIO I-7045D
                     oout_data = Parse_DIO(real_ans, comand.id, portname); ;
                     break;
+                case 126:
+                case 127:
+                case 128:
+                case 129:
+                case 130:
+                case 133:
+                    //лазер Huarey
+                    oout_data = Parse_Laser_Huarey_vals(real_ans, comand.id, portname);
+                    break;
+                case 131:
+                case 132:
+                    //просто проверка есть/нет ошибок, код ошибки будет парситься отдельно
+                    oout_data = Parse_Laser_Huarey_war_err(real_ans, comand.id, portname);
+                    break;
+
+                case 134:
+                case 135:
+                    //спец парсинг для запроса времени работы
+                    oout_data = Parse_Laser_Huarey_vals_time(real_ans, comand.id, portname);
+                    break;
+                case 137:
+                    //cryo RS-232 CryoMech
+                    oout_data = Parse_cryoMech(real_ans, comand.id, portname);
+                    break;
             }
 
             return oout_data;
+        }
+        /// <summary>
+        /// парсинг вкл/выкл + статус CryoMech
+        /// </summary>
+        /// <param name="str"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
+        private COM_data_Out Parse_cryoMech(string str, int id, int portname)
+        {
+            COM_data_Out answer = new COM_data_Out { };
+            //команда вида 
+            try
+            {
+                string[] arr = str.Split(new char[] { ' ', ' '}, StringSplitOptions.RemoveEmptyEntries);
+                string Cryo_name = arr[0];
+                string on_off = arr[1];
+                string hours = arr[3];
+                hours = hours.Replace('.', ',');
+                string inf = arr[5];
+                Log_.Debug("name = " + Cryo_name);
+                Log_.Debug("on_off = " + on_off);
+                Log_.Debug("hours = " + hours);
+                Log_.Debug("inf = " + inf);
+                if (on_off == "OFF")
+                {
+                    Write_to_StateInfo(0, 137);
+                    answer.ans = 0;
+                }
+                if (on_off == "ON")
+                {
+                    Write_to_StateInfo(1, 137);
+                    answer.ans = 1;
+                }
+                if (float.TryParse(hours, out float hh))
+                {
+                    Write_to_StateInfo(hh, 139);
+                }
+            }
+            catch(Exception ex)
+            {
+                answer.message = name + " parsing problem cryoMech" + ex.ToString();
+                answer.need_error_procces = true;
+            }
+            return answer;
+        }
+        /// <summary>
+        /// спец парсинг для запроса времени работы
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
+        private COM_data_Out Parse_Laser_Huarey_vals_time(string ans, int id, int portname)
+        {
+            COM_data_Out answer = new COM_data_Out { };
+            try
+            {
+                //Log_.Debug("laser parse =" + ans.Substring(ans.IndexOf('?') + 2, ans.Length - ans.IndexOf('?') - 3) + ".");
+                string str = ans.Substring(ans.IndexOf('?') + 2, ans.Length - ans.IndexOf('?') - 3);
+                str = str.Replace('.',',');
+                if (float.TryParse(str, out float val))
+                {
+                    answer.ans = val;
+                }
+                else
+                {
+                    answer.message = name + " parsing problem Laser Huarey";
+                    answer.need_error_procces = true;
+                }
+                Write_to_StateInfo(answer.ans, id);
+            }
+            catch (Exception ex)
+            {
+                answer.message = name + " parsing problem Laser Huarey" + ex.ToString();
+                //TODO отключена реакция на ошибки
+                //answer.need_error_procces = true;
+                //answer.ans = -1;
+            }
+            return answer;
+        }
+        /// <summary>
+        /// проверка есть/нет ошибок 0 - нет ошибки, 1 - есть
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
+        private COM_data_Out Parse_Laser_Huarey_war_err(string ans, int id, int portname)
+        {
+            COM_data_Out answer = new COM_data_Out { };
+            try
+            {
+                //Log_.Debug("laser parse_war_error =" + ans + ".");
+                switch (id)
+                {
+                    case 131:
+                        //geterrors
+                        //geterrors? 14(water_tank/temp_key) 
+                        //надо парсить ответ
+                        if (ans == "geterrors? ")
+                        {
+                            answer.ans = 0;
+                        }
+                        else
+                        {
+                            answer.ans = 1;
+                        }
+
+                        break;
+                    case 132:
+                        if (ans == "getwarnings? ")
+                        {
+                            answer.ans = 0;
+                        }
+                        else
+                        {
+                            answer.ans = 1;
+                        }
+                        break;
+                }
+                if (answer.ans==1)
+                {
+                    answer.message = name + " erorr or warning Laser Huarey";
+                    //TODO отключена реакция на ошибки
+                    //answer.need_error_procces = true;
+                    //answer.need_break = true;
+                }
+                Write_to_StateInfo(answer.ans, id);
+            }
+            catch (Exception ex)
+            {
+                answer.message = name + " parsing problem Laser Huarey" + ex.ToString();
+                answer.need_error_procces = true;
+                //answer.ans = -1;
+            }
+            return answer;
+        }
+        /// <summary>
+        /// Парсинг ответов/запросов лазера 126-130
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
+        private COM_data_Out Parse_Laser_Huarey_vals(string ans, int id, int portname)
+        {
+            COM_data_Out answer = new COM_data_Out { };
+            try
+            {
+                //Log_.Debug("laser parse =" + ans.Substring(ans.IndexOf('?')+2, ans.Length - ans.IndexOf('?')-2)+".");
+                if (float.TryParse(ans.Substring(ans.IndexOf('?')+2,ans.Length- ans.IndexOf('?')-2), out float val))
+                {
+                    answer.ans = val;
+                    Write_to_StateInfo(answer.ans, id);
+                }
+                else
+                {
+                    answer.message = name + " parsing problem Laser Huarey";
+                    //TODO отключена реакция на ошибки
+                    //answer.need_error_procces = true;
+                    //answer.ans = 0;
+                }                
+            }
+            catch (Exception ex)
+            {
+                answer.message = name + " parsing problem Laser Huarey" + ex.ToString();
+                answer.need_error_procces = true;
+                //answer.ans = -1;
+            }
+            return answer;
         }
         //Heater range для LakeShore
         private COM_data_Out Parse_LakeShore_Heater(string ans, int id, int portname)
@@ -1419,13 +1641,14 @@ namespace State_Machine_FWR
                 }
                 else
                 {
-                    aaa.ans = -1;
+                    aaa.message = name + " parsing problem LakeShore Heater";
+                    aaa.need_error_procces = true;
                 }
                 Write_to_StateInfo(aaa.ans, id);
             }
             catch (Exception ex)
             {
-                aaa.message = name + " parsing problem LakeShore setpoint" + ex.ToString();
+                aaa.message = name + " parsing problem LakeShore Heater" + ex.ToString();
                 aaa.need_error_procces = true;
             }
 
@@ -1445,7 +1668,8 @@ namespace State_Machine_FWR
                 }
                 else
                 {
-                    aaa.ans = -1;
+                    aaa.message = name + " parsing problem LakeShore setpoint" ;
+                    aaa.need_error_procces = true;
                 }
                 Write_to_StateInfo(aaa.ans, id);
             }
@@ -1471,7 +1695,8 @@ namespace State_Machine_FWR
                 }
                 else
                 {
-                    aaa.ans = -1;
+                    aaa.message = name + " parsing problem LakeShore Temperature" ;
+                    aaa.need_error_procces = true;
                 }
                 Write_to_StateInfo(aaa.ans, id);
             }
@@ -1558,6 +1783,7 @@ namespace State_Machine_FWR
                 if (!Compare_bits(now_bit, id))
                 {
                     // все плохо, параметр выщел за пределы хначения
+                    //TODO проверить нужно ли break+Emergency
                     aaa.message = name + " error DIO I7045D value num = " + id.ToString();
                     aaa.need_break = true;
                     //break;
@@ -1583,17 +1809,25 @@ namespace State_Machine_FWR
                 {
                     int dat_len = int.Parse(ans.Substring(8, 2));
                     aaa.ans = float.Parse(ans.Substring(10, dat_len));
-                    Log_message?.Invoke("pfeiffer val " + id.ToString() + " = " + aaa.ans);
-                    Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans);
+                    Log_message?.Invoke("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
+                    Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
                     Write_to_StateInfo(aaa.ans, id);
+                    //проврека на МАКС/МИН
+                    if (aaa.ans<max_min_tar_data.MIN_data_slice[id] || aaa.ans>max_min_tar_data.MAX_data_slice[id])
+                    {                        
+                        aaa.message = name + " BAD parameter in Pfeiffer " + id.ToString();
+                        if (name != "Em")
+                        {
+                            aaa.need_error_procces = true;
+                            aaa.need_break = true;
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
                 aaa.message = name + " parsing problem Pfeiffer" + ex.ToString();
                 aaa.need_error_procces = true;
-                //Log_message?.Invoke(name + " parsing problem Pfeiffer" + ex.ToString());
-                //Error_deal(false, portname);
             }
 
             return aaa;
@@ -1733,68 +1967,711 @@ namespace State_Machine_FWR
             return aaa;
         }
         /// <summary>
-        /// проверяем можно ли менять значение параметра
+        /// проверяем можно ли менять значение параметра true -можем, false - запрет на изменение параметра
         /// </summary>
         /// <param name="id_comand"></param>
         /// <param name="value"></param>
         /// <returns></returns>
-        private bool Can_change(int id_comand, float value)
+        private bool Can_change(int id_comand, float new_value)
         {
             bool ans = false;
-            switch (id_comand)
+            try
+            {                
+                switch (id_comand)
+                {
+                    case 40:
+                        //вкл/выкл ТМН на загрузке
+                        if (name != "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23)
+                            && StateInfo.TryGetValue(25, out float val40_25)
+                            && StateInfo.TryGetValue(42, out float val40_42))
+                        {
+                            //выкл
+                            if (val40_23 == 0 &&
+                                val40_25 == 0 &&
+                                val40_42 == 0 &&
+                                new_value == 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        if (name != "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_1)
+                            && StateInfo.TryGetValue(25, out float val40_25_1))
+                        {
+                            //вкл
+                            if (val40_23_1 == 1 &&
+                                val40_25_1 == 0 &&
+                                new_value == 111111)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ток насоса выше макс                        
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_2)
+                            && StateInfo.TryGetValue(25, out float val40_25_2)
+                            && StateInfo.TryGetValue(42, out float val40_42_2)
+                            && StateInfo.TryGetValue(47, out float val40_47_2))
+                        {
+                            if (val40_23_2 == 0 &&
+                                val40_25_2 == 0 &&
+                                val40_42_2 == 1 &&
+                                new_value == 0 &&
+                                val40_47_2 > max_min_tar_data.MAX_data_slice[47])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //давление на форв первыш
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_3)
+                            && StateInfo.TryGetValue(25, out float val40_25_3)
+                            && StateInfo.TryGetValue(42, out float val40_42_3)
+                            && StateInfo.TryGetValue(10, out float val40_10_3))
+                        {
+                            if (val40_23_3 == 0 &&
+                                val40_25_3 == 0 &&
+                                val40_42_3 == 1 &&
+                                new_value == 0 &&
+                                val40_10_3 > max_min_tar_data.MAX_data_slice[10])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ИБП малый заряд
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_4)
+                            && StateInfo.TryGetValue(25, out float val40_25_4)
+                            && StateInfo.TryGetValue(42, out float val40_42_4)
+                            && StateInfo.TryGetValue(6, out float val40_6_4))
+                        {
+                            if (val40_23_4 == 0 &&
+                                val40_25_4 == 0 &&
+                                val40_42_4 == 1 &&
+                                new_value == 0 &&
+                                val40_6_4 <= 30)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрев электроники насоса
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_5)
+                            && StateInfo.TryGetValue(25, out float val40_25_5)
+                            && StateInfo.TryGetValue(42, out float val40_42_5)
+                            && StateInfo.TryGetValue(66, out float val40_66_5))
+                        {
+                            if (val40_23_5 == 0 &&
+                                val40_25_5 == 0 &&
+                                val40_42_5 == 1 &&
+                                new_value == 0 &&
+                                val40_66_5 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрев насоса
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_6)
+                            && StateInfo.TryGetValue(25, out float val40_25_6)
+                            && StateInfo.TryGetValue(42, out float val40_42_6)
+                            && StateInfo.TryGetValue(68, out float val40_68_6))
+                        {
+                            if (val40_23_6 == 0 &&
+                                val40_25_6 == 0 &&
+                                val40_42_6 == 1 &&
+                                new_value == 0 &&
+                                val40_68_6 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ошибка ИБП
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val40_23_7)
+                            && StateInfo.TryGetValue(25, out float val40_25_7)
+                            && StateInfo.TryGetValue(42, out float val40_42_7)
+                            && StateInfo.TryGetValue(8, out float val40_8_7))
+                        {
+                            if (val40_23_7 == 0 &&
+                                val40_25_7 == 0 &&
+                                val40_42_7 == 1 &&
+                                new_value == 0 &&
+                                val40_8_7 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        Log_.Debug("try switch LL Pfeiffer (40) can ch = " + ans.ToString() + ".");
+                        break;
+                    case 74:
+                        //вкл/выкл ТМН на анализационном
+                        /*if (name != "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24)
+                            && StateInfo.TryGetValue(25, out float val74_25)
+                            && StateInfo.TryGetValue(42, out float val74_76))
+                        {
+                            //выкл
+                            if (val74_24 == 0 &&
+                                val74_25 == 0 &&
+                                val74_76 == 0 &&
+                                new_value == 0)
+                            {
+                                ans = true;
+                            }
+                        }*/
+                        if (name != "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_1)
+                            && StateInfo.TryGetValue(25, out float val74_25_1))
+                        {
+                            //вкл
+                            if (val74_24_1 == 1 &&
+                                val74_25_1 == 0 &&
+                                new_value == 111111)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ток насоса выше макс                        
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_2)
+                            && StateInfo.TryGetValue(25, out float val74_25_2)
+                            && StateInfo.TryGetValue(76, out float val74_76_2)
+                            && StateInfo.TryGetValue(81, out float val74_81_2))
+                        {
+                            if (val74_24_2 == 0 &&
+                                val74_25_2 == 0 &&
+                                val74_76_2 == 1 &&
+                                new_value == 0 &&
+                                val74_81_2 > max_min_tar_data.MAX_data_slice[81])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //давление на форв первыш
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_3)
+                            && StateInfo.TryGetValue(25, out float val74_25_3)
+                            && StateInfo.TryGetValue(76, out float val74_76_3)
+                            && StateInfo.TryGetValue(12, out float val74_12_3))
+                        {
+                            if (val74_24_3 == 0 &&
+                                val74_25_3 == 0 &&
+                                val74_76_3 == 1 &&
+                                new_value == 0 &&
+                                val74_12_3 > max_min_tar_data.MAX_data_slice[12])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ИБП малый заряд
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_4)
+                            && StateInfo.TryGetValue(25, out float val74_25_4)
+                            && StateInfo.TryGetValue(76, out float val74_76_4)
+                            && StateInfo.TryGetValue(6, out float val74_6_4))
+                        {
+                            if (val74_24_4 == 0 &&
+                                val74_25_4 == 0 &&
+                                val74_76_4 == 1 &&
+                                new_value == 0 &&
+                                val74_6_4 <= 30)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрев электроники насоса
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_5)
+                            && StateInfo.TryGetValue(25, out float val74_25_5)
+                            && StateInfo.TryGetValue(76, out float val74_76_5)
+                            && StateInfo.TryGetValue(100, out float val74_100_5))
+                        {
+                            if (val74_24_5 == 0 &&
+                                val74_25_5 == 0 &&
+                                val74_76_5 == 1 &&
+                                new_value == 0 &&
+                                val74_100_5 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрев насоса
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_6)
+                            && StateInfo.TryGetValue(25, out float val74_25_6)
+                            && StateInfo.TryGetValue(76, out float val74_76_6)
+                            && StateInfo.TryGetValue(102, out float val74_102_6))
+                        {
+                            if (val74_24_6 == 0 &&
+                                val74_25_6 == 0 &&
+                                val74_76_6 == 1 &&
+                                new_value == 0 &&
+                                val74_102_6 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ошибка ИБП
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val74_24_7)
+                            && StateInfo.TryGetValue(25, out float val74_25_7)
+                            && StateInfo.TryGetValue(76, out float val74_76_7)
+                            && StateInfo.TryGetValue(8, out float val74_8_7))
+                        {
+                            if (val74_24_7 == 0 &&
+                                val74_25_7 == 0 &&
+                                val74_76_7 == 1 &&
+                                new_value == 0 &&
+                                val74_8_7 > 0)
+                            {
+                                ans = true;
+                            }
+                        }                        
+                        Log_.Debug("try switch AC Pfeiffer (74) can ch = " + ans.ToString() + ".");
+                        break;
+                    case 28:
+                        //вкл/выкл форвакуумный насос на LL
+                        if (name != "Em"
+                            && StateInfo.TryGetValue(23, out float val28_23))
+                        {
+                            //выкл
+                            if (val28_23 == 0 &&
+                                new_value == 0)
+                            {
+                                ans = true;
+                            }
+                            //вкл
+                            if (val28_23 == 1 &&
+                                new_value == 1)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ИБП мало заряда
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val28_23_1)
+                            && StateInfo.TryGetValue(6, out float val28_6_1))
+                        {
+                            if (val28_23_1 == 0 &&
+                                val28_6_1 <= 30)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ИБП сломался
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val28_23_2)
+                            && StateInfo.TryGetValue(8, out float val28_8_2))
+                        {
+                            if (val28_23_2 == 0 &&
+                                val28_8_2 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //превышение форв.давления
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(23, out float val28_23_3)
+                            && StateInfo.TryGetValue(10, out float val28_10_3))
+                        {
+                            if (val28_23_3 == 0 &&
+                                val28_10_3 > max_min_tar_data.MAX_data_slice[10])
+                            {
+                                ans = true;
+                            }
+                        }
+                        Log_.Debug("try switch LL forevac (28) can ch = " + ans.ToString() + ".");
+                        break;
+                    case 29:
+                        //выключать форвакуумныей насос на AC
+                        if (name != "Em"
+                            && StateInfo.TryGetValue(24, out float val29_24))
+                        {
+                            //выкл
+                            if (val29_24 == 0 &&
+                                new_value == 0)
+                            {
+                                ans = true;
+                            }
+                            //вкл
+                            if (val29_24 == 1 &&
+                                new_value == 1)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ИБП мало заряда
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val29_24_1)
+                            && StateInfo.TryGetValue(6, out float val29_6_1))
+                        {
+                            if (val29_24_1 == 0 &&
+                                val29_6_1 <= 30)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ИБП сломался
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val29_24_2)
+                            && StateInfo.TryGetValue(8, out float val29_8_2))
+                        {
+                            if (val29_24_2 == 0 &&
+                                val29_8_2 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //превышение форв.давления
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(24, out float val29_24_3)
+                            && StateInfo.TryGetValue(12, out float val29_12_3))
+                        {
+                            if (val29_24_3 == 0 &&
+                                val29_12_3 > max_min_tar_data.MAX_data_slice[12])
+                            {
+                                ans = true;
+                            }
+                        }
+                        Log_.Debug("try switch AC forevac (29) can ch = " + ans.ToString() + ".");
+                        break;
+                    case 25:
+                        //шибер
+                        //открывать
+                        if (name == "HVSB" &&
+                            StateInfo.TryGetValue(16, out float val25_16) &&
+                            StateInfo.TryGetValue(40, out float val25_40) &&
+                            StateInfo.TryGetValue(74, out float val25_74) &&
+                            StateInfo.TryGetValue(11, out float val25_11) &&                            
+                            StateInfo.TryGetValue(18, out float val25_18))
+                        {
+                            if (StateInfo.TryGetValue(13, out float val25_13) &&                               
+                                val25_16 < 30 &&
+                                val25_40 == 111111 &&
+                                val25_74 == 111111 &&
+                                new_value == 1 &&
+                                Convert.ToDecimal(val25_11) < Convert.ToDecimal(max_min_tar_data.MAX_data_slice[11]) &&
+                                Convert.ToDecimal(val25_13) < Convert.ToDecimal(max_min_tar_data.MAX_data_slice[13]) &&
+                                val25_18 == 0)
+                            {
+                                ans = true;
+                            }                            
+                        }
+                        //всегда можно закрывать
+                        if (new_value == 0)
+                        {
+                            ans = true;
+                        }
+                        Log_.Debug("try switch GateValve (25) can ch = " + ans.ToString() + ".");
+                        break;
+                    case 23:
+                        //клапан LL
+                        //вкл/выкл всегда можно в не Emergency
+                        if (name != "Em")
+                        {
+                            ans = true;
+                        }
+                        //ток ТМН 47 больше макс
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(47, out float val23_47))
+                        {
+                            if (val23_47 > max_min_tar_data.MAX_data_slice[47])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //давление на форв загрузке 10 больше макс
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(10, out float val23_10))
+                        {
+                            if (val23_10 > max_min_tar_data.MAX_data_slice[10])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //заряд ИБП меньше 30% п6
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(6, out float val23_6))
+                        {
+                            if (val23_6 <= 30)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрелась электроника ТМН загрузки 66
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(66, out float val23_66))
+                        {
+                            if (val23_66 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрелся насос загрузки 68
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(68, out float val23_68))
+                        {
+                            if (val23_68 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ошибка ИБП 8
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(8, out float val23_8))
+                        {
+                            if (val23_8 > 0)
+                            {
+                                ans = true;
+                            }
+                        }                        
+                        break;
+                    case 24:
+                        //клапан LL
+                        //вкл/выкл всегда можно в не Emergency
+                        if (name != "Em")
+                        {
+                            ans = true;
+                        }
+                        //ток ТМН 47 больше макс
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(81, out float val24_81))
+                        {
+                            if (val24_81 > max_min_tar_data.MAX_data_slice[81])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //давление на форв анализ 12 больше макс
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(12, out float val24_12))
+                        {
+                            if (val24_12 > max_min_tar_data.MAX_data_slice[12])
+                            {
+                                ans = true;
+                            }
+                        }
+                        //заряд ИБП меньше 30% п6
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(6, out float val24_6))
+                        {
+                            if (val24_6 <= 30)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрелась электроника ТМН анализационный 100
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(100, out float val24_100))
+                        {
+                            if (val24_100 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //перегрелся насос анализационный 102
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(102, out float val24_102))
+                        {
+                            if (val24_102 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ошибка ИБП 8
+                        if (name == "Em"
+                            && StateInfo.TryGetValue(8, out float val24_8))
+                        {
+                            if (val24_8 > 0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        break;
+                    case 18:
+                        //HV A detector
+                        if (StateInfo.TryGetValue(25, out float val18_25) &&
+                            StateInfo.TryGetValue(18, out float val18_18))
+                        {
+                            if (name == "AN" && val18_25==0)
+                            {
+                                ans = true;
+                            }
+                        }
+                        if (StateInfo.TryGetValue(18, out float val18_18_1)
+                            && Convert.ToDecimal(new_value) < Convert.ToDecimal(val18_18_1))
+                        {
+                            ans = true;
+                        }
+                        break;
+                    case 19:
+                        //HV B detector
+                        if (StateInfo.TryGetValue(25, out float val19_25) &&
+                            StateInfo.TryGetValue(19, out float val19_19))
+                        {
+                            if (name == "AN" && val19_25 == 0)
+                            {
+                                ans = true;
+                            }                            
+                        }
+                        if (StateInfo.TryGetValue(19, out float val19_19_1)
+                            && Convert.ToDecimal(new_value) < Convert.ToDecimal(val19_19_1))
+                        {
+                            ans = true;
+                        }
+                        break;
+                    default:
+                        ans = true;
+                        break;
+                }
+            }
+            catch(Exception ex)
             {
-                case 40:
-                    //выключать LL ТМН только при 23 = 0 (закрыт клапан LL)
-                    if (value == 0 && StateInfo.TryGetValue(23, out float val40))
-                    {
-                        if (val40 == 0)
-                        {
-                            ans = true;
-                        }
-                    }
-                    else ans = true;
-                    break;
-                case 74:
-                    //выключать AC ТМН только при 24 = 0 (закрыт клапан AC)
-                    if (value == 0 && StateInfo.TryGetValue(24, out float val74))
-                    {
-                        if (val74 == 0)
-                        {
-                            ans = true;
-                        }
-                    }
-                    else ans = true;
-                    break;
-                case 28:
-                    //выключать форвакуумныей LL только при закрытом клапане (23 = 0)
-                    if (value == 0 && StateInfo.TryGetValue(23, out float val28))
-                    {
-                        if (val28 == 0)
-                        {
-                            ans = true;
-                        }
-                    }
-                    else ans = true;
-                    break;
-                case 29:
-                    //выключать форвакуумныей AC только при закрытом клапане (24 = 0)
-                    if (value == 0 && StateInfo.TryGetValue(24, out float val29))
-                    {
-                        if (val29 == 0)
-                        {
-                            ans = true;
-                        }
-                    }
-                    else ans = true;
-                    break;
-                default:
-                    ans = true;
-                    break;
+                Log_.Error("Some error in block Can_change " + id_comand.ToString() + "\n" + ex.ToString());
             }
 
             return ans;
         }
+        /// <summary>
+        /// расчет нового значения без шага Новое значение=таргет
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="old_val"></param>
+        /// <returns></returns>
+        private float New_val_piece_step(int id, float old_val)
+        {
+            //случай когда шаг больше чем разница таргет-old_val
+            float ans = old_val;
+            if (old_val < max_min_tar_data.TAR_data_slice[id] &&
+                        old_val + max_min_tar_data.Step_plus[id] > max_min_tar_data.TAR_data_slice[id] &&
+                        max_min_tar_data.TAR_data_slice[id] <= max_min_tar_data.MAX_data_slice[id])
+            {
+                //КОСТЫЛЬ для ОЛЕГА для напряжения (напряжение может флуктуировать сильно)
+                if (id == 16 && Math.Abs(old_val - max_min_tar_data.TAR_data_slice[id]) < 0.5)
+                {
+                    ans = old_val;
+                }
+                else
+                {
+                    if (id == 16)
+                    {
+                        ans = max_min_tar_data.TAR_data_slice[id] - Convert.ToSingle(0.5);
+                    }
+                    else
+                    {
+                        ans = max_min_tar_data.TAR_data_slice[id];
+                    }
+                }
+            }
+            if (old_val > max_min_tar_data.TAR_data_slice[id] &&
+                old_val - max_min_tar_data.Step_minus[id] < max_min_tar_data.TAR_data_slice[id] &&
+                max_min_tar_data.TAR_data_slice[id] >= max_min_tar_data.MIN_data_slice[id])
+            {
+                //КОСТЫЛЬ для ОЛЕГА для напряжения (напряжение может флуктуировать сильно)
+                if (id == 16 && Math.Abs(old_val - max_min_tar_data.TAR_data_slice[id]) < 2)
+                {
+                    ans = old_val;
+                }
+                else
+                {
+                    if (id == 16)
+                    {
+                        ans = max_min_tar_data.TAR_data_slice[id];
+                    }
+                    else
+                    {
+                        ans = max_min_tar_data.TAR_data_slice[id];
+                    }
+                }
+            }
+            return ans;
+        }
+        /// <summary>
+        /// расчет нового значения с фиксированным шагом
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="old_val"></param>
+        /// <returns></returns>
+        private float New_val_Full_step(int id, float old_val)
+        {            
+            float ans = old_val;
+            if (old_val < max_min_tar_data.TAR_data_slice[id] &&
+                        old_val + max_min_tar_data.Step_plus[id] <= max_min_tar_data.TAR_data_slice[id] &&
+                        old_val + max_min_tar_data.Step_plus[id] <= max_min_tar_data.MAX_data_slice[id])
+            {
+                ans = old_val + max_min_tar_data.Step_plus[id];
+            }
+            if (old_val > max_min_tar_data.TAR_data_slice[id] &&
+                old_val - max_min_tar_data.Step_minus[id] >= max_min_tar_data.TAR_data_slice[id] &&
+                old_val - max_min_tar_data.Step_minus[id] >= max_min_tar_data.MIN_data_slice[id])
+            {
+                ans = old_val - max_min_tar_data.Step_minus[id];
+            }
+            return ans;
+        }
+        private float Calc_step(int id, float old_val)
+        {
+            float ans = old_val;
+            switch (id)
+            {
+                case 16:
+                case 18:
+                case 19:
+                case 127:
+                case 128:
+                    //Log_.Debug(id.ToString() + " make special step");
+                    //пробуем сделать шаг целый
+                    ans = New_val_Full_step(id, old_val);
+                    //если полный шаг не получилось сделать
+                    if (ans==old_val)
+                    {
+                        //делаем шаг не больше чем степ
+                        ans = New_val_piece_step(id, old_val);
+                    }
+                    break;
+                default:
+                    //делаем шаг на степ
+                    //есди цель не достигнута
+                    //и если мы не шагнем дальше таргета
+                    ans = New_val_Full_step(id, old_val);
+                    break;
+            }
+            return ans;
+        }
+        private float Get_new_val(int id, float old_val)
+        {
+            float ans = old_val;
+            //если меньше мин - сразу меняем
+            if (old_val < max_min_tar_data.MIN_data_slice[id])
+            {
+                ans = old_val + max_min_tar_data.Step_plus[id];
+                Log_.Debug("param " + id.ToString() + " MIN limit exceeded");
+            }
+            else
+            {
+                //если больше макс - сразу меняем
+                if (old_val > max_min_tar_data.MAX_data_slice[id])
+                {
+                    ans = old_val - max_min_tar_data.Step_plus[id];
+                    Log_.Debug("param " + id.ToString() + " MAX limit exceeded");
+                }
+                else
+                {
+                    //все хорошо
+                    //нужно ли делать шаг?
+                    if (max_min_tar_data.TAR_data_slice.ContainsKey(id))
+                    {
+                        //расчитываем делать в какую сторону шаг
+                        //Log_.Debug(id.ToString() + " make step");
+                        ans = Calc_step(id, old_val);
+                    }
+                }
+            }
 
+            return ans;
+        }
         //проверка нужно ли изменение параметра
         private void Check_and_write(float ans, Comand_COM com, SerialPort port)
         {
@@ -1803,6 +2680,13 @@ namespace State_Machine_FWR
                 //проверяем есть ли в списке на изменение данная команда
                 if (Push_target_list.ContainsKey(com.id))
                 {
+                    //проверяем на макс-мин, если вышли за диапазон - ставим равной границе диапазона
+                    if (max_min_tar_data.MAX_data_slice.ContainsKey(com.id)
+                        && max_min_tar_data.MIN_data_slice.ContainsKey(com.id))
+                    {
+                        if (Push_target_list[com.id] > max_min_tar_data.MAX_data_slice[com.id]) Push_target_list[com.id] = max_min_tar_data.MAX_data_slice[com.id];
+                        if (Push_target_list[com.id] < max_min_tar_data.MIN_data_slice[com.id]) Push_target_list[com.id] = max_min_tar_data.MIN_data_slice[com.id];
+                    }
                     if (max_min_tar_data.TAR_data_slice.ContainsKey(com.id))
                     {
                         //обновляем значение таргет
@@ -1810,73 +2694,29 @@ namespace State_Machine_FWR
                     }
                     else
                     {
+                        //добавляем новое значение таргет
                         max_min_tar_data.TAR_data_slice.TryAdd(com.id,Push_target_list[com.id]);
                     }
                     //удаляем из списка
                     Push_target_list.TryRemove(com.id, out _);
                 }
-                //сравниваем текущее значение и макс/мин
-                if (ans >= max_min_tar_data.MIN_data_slice[com.id] &&
-                    ans <= max_min_tar_data.MAX_data_slice[com.id])
+                //получаем значение новое
+                //если разрешено - делаем шаг
+                float new_val = Get_new_val(com.id, ans);
+                if (Can_change(com.id, new_val) && new_val!=ans)
                 {
-                    //если в переделах нормы - сравниваем нужно ли менять значение
-                    if (max_min_tar_data.TAR_data_slice.ContainsKey(com.id) && ans < max_min_tar_data.TAR_data_slice[com.id])
-                    {
-                        //если шаг не выйдет за пределы макс/мин                    
-                        if ((ans + max_min_tar_data.Step_plus[com.id]) <= max_min_tar_data.MAX_data_slice[com.id] &&
-                                (ans + max_min_tar_data.Step_plus[com.id]) <= max_min_tar_data.TAR_data_slice[com.id])
-                        {
-                            //проверяем можно ли делать шаг, если да - делаем
-                            if (Can_change(com.id, ans + max_min_tar_data.Step_plus[com.id]))
-                            {
-                                //делаем шаг вперед
-                                COM_write(com, port, ans + max_min_tar_data.Step_plus[com.id]);
-                            }
-                            else
-                            {
-                                Log_.Debug("param "+ com.id.ToString() + " change not allowed");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        if (max_min_tar_data.TAR_data_slice.ContainsKey(com.id) && ans > max_min_tar_data.TAR_data_slice[com.id])
-                            //если шаг не выйдет за пределы макс/мин
-                            if ((ans - max_min_tar_data.Step_minus[com.id]) >= max_min_tar_data.MIN_data_slice[com.id] &&
-                                        (ans - max_min_tar_data.Step_minus[com.id]) >= max_min_tar_data.TAR_data_slice[com.id])
-                            {
-                                //проверяем можно ли делать шаг, если да - делаем
-                                if (Can_change(com.id, ans - max_min_tar_data.Step_minus[com.id]))
-                                {
-                                    //делаем шаг назад
-                                    COM_write(com, port, ans - max_min_tar_data.Step_minus[com.id]);
-                                }
-                                else
-                                {
-                                    Log_.Debug("param " + com.id.ToString() + " change not allowed");
-                                }
-                            }
-                    }
+                    //делаем шаг вперед
+                    COM_write(com, port, new_val);
+                    Log_.Debug("yes we change param "+com.id.ToString() + " to "+ new_val.ToString()+"-"+"\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
                 }
                 else
                 {
-                    //пытаемся вернуться к целевым занчениям
-                    if (ans < max_min_tar_data.MIN_data_slice[com.id])
-                    {
-                        //делаем шаг вперед
-                        COM_write(com, port, ans + max_min_tar_data.Step_plus[com.id]);
-                    }
-                    else
-                    {
-                        if (ans > max_min_tar_data.MAX_data_slice[com.id])
-                            COM_write(com, port, ans - max_min_tar_data.Step_minus[com.id]);
-
-                    }
+                    Log_.Debug("param " + com.id.ToString() + " change not allowed\nnew val = "+new_val.ToString()+"\nold val = "+ans.ToString());
                 }
             }
             catch (Exception ex)
             {
-                Log_.Error("Some error in block Check_and_write "+ ex.ToString());
+                Log_.Error("Some error in block Check_and_write "+com.id.ToString()+"\n"+ ex.ToString());
             }
         }
         //проверка ответа ИБП
@@ -1936,11 +2776,10 @@ namespace State_Machine_FWR
                 else aaa.message = "IPF voltage - out of range";
             }
             else aaa.message = "IP voltage - out of range";
-            if (aaa.message != "")
+            if (aaa.message != "" && name != "Em")
             {
-                //Log_message?.Invoke(name + " "+ aaa.message);
-                //Error_deal(true, portname);
                 aaa.need_break = true;
+                aaa.need_error_procces = true;
                 aaa.message = name + " " + aaa.message;
             }
             return aaa;
@@ -1953,36 +2792,51 @@ namespace State_Machine_FWR
             {
                 if (com_ans.Length > 10)
                 {
-                    //TODO дописать проверки для неверные данные
                     if (com_ans.Substring(3, 1) != "7")
                     {
                         int data_len = int.Parse(com_ans.Substring(7, 1));
-                        Thyr_data Thyr_real_data = new Thyr_data
+                        string data = com_ans.Substring(8, data_len).Replace('.', ',');
+                        Thyr_data Thyr_real_data = new Thyr_data { };
+                        switch (data)
                         {
-                            //pressure = float.Parse(com_ans.Substring(8, data_len))
-                            pressure = float.Parse(com_ans.Substring(8, data_len).Replace('.', ','))
-                        };
+                            case "UR":
+                                Thyr_real_data.pressure = float.Parse("5E-10");
+                                break;
+                            case "OR":
+                                Thyr_real_data.pressure = float.Parse("3000");
+                                break;
+                            default:
+                                Thyr_real_data.pressure = float.Parse(data);
+                                break;
+                        }
+                        
                         Write_to_StateInfo(Thyr_real_data.pressure, id);
 
-                        if (Thyr_real_data.pressure >= max_min_tar_data.MIN_data_slice[id] && Thyr_real_data.pressure <= max_min_tar_data.MAX_data_slice[id])
+                        if (Convert.ToDecimal(Thyr_real_data.pressure) >= Convert.ToDecimal(max_min_tar_data.MIN_data_slice[id]) &&
+                        Convert.ToDecimal(Thyr_real_data.pressure) <= Convert.ToDecimal(max_min_tar_data.MAX_data_slice[id]))
                         {
                             aaa.ans = Thyr_real_data.pressure;
                         }
                         else
-                        {
-                            //Log_message?.Invoke(name + " - недопустимое давление на датчике" + id.ToString());
-                            //Error_deal(true, portname);
-                            aaa.message = name + " -  BAD pressure!!! " + id.ToString() + "pressure = " + Thyr_real_data.pressure.ToString();
-                            aaa.need_error_procces = true;
-                            aaa.need_break = true;
+                        {                            
+                            aaa.message = name + " -  BAD pressure!!! " + id.ToString() + " pressure = " + Thyr_real_data.pressure.ToString();
+                            //в Em всегда нужно собирать данные пока есть возможность некуда переходить
+                            if (name != "Em")
+                            {
+                                aaa.need_error_procces = true;
+                                aaa.need_break = true;
+                            }
                         }
+                    }
+                    else
+                    {
+                        aaa.message = name + " - Thyracont problem gauge send error";
+                        aaa.need_error_procces = true;
                     }
                 }
             }
             catch (Exception exx)
             {
-                //Log_message?.Invoke(name + " - Thyracont parsing problem " + exx.Message.ToString());
-                //Error_deal(false, portname);
                 aaa.message = name + " - Thyracont parsing problem " + exx.Message.ToString();
                 aaa.need_error_procces = true;
             }
@@ -1997,42 +2851,35 @@ namespace State_Machine_FWR
                 if (com_ans.Length > 10)
                 {
                     //TODO дописать проверки для неверные данные
-                    //if (com_ans.Substring(3, 1) != "7")
-                    //{
-                    //int data_len = int.Parse(com_ans.Substring(7, 1));
                     Thyr_data Thyr_real_data = new Thyr_data
                     {
-                        //pressure = float.Parse(com_ans.Substring(8, data_len))
                         pressure = float.Parse(com_ans.Substring(4, 4))
                     };
-                    //Log_message?.Invoke("pressure = " +Thyr_real_data.pressure.ToString());
                     int ggg = int.Parse(com_ans.Substring(8, 2));
-                    //Log_message?.Invoke("exp = " + ggg.ToString());
-                    //Log_message?.Invoke("pow = " + Math.Pow(10, ggg - 20 - 3).ToString());
                     Thyr_real_data.pressure = Thyr_real_data.pressure * Convert.ToSingle(Math.Pow(10, ggg - 20 - 3));
-                    //Log_message?.Invoke("res = " + Thyr_real_data.pressure.ToString());
                     Write_to_StateInfo(Thyr_real_data.pressure, id);
 
-                    if (Thyr_real_data.pressure >= max_min_tar_data.MIN_data_slice[id] && Thyr_real_data.pressure <= max_min_tar_data.MAX_data_slice[id])
+                    if (Convert.ToDecimal(Thyr_real_data.pressure) >= Convert.ToDecimal(max_min_tar_data.MIN_data_slice[id]) && 
+                        Convert.ToDecimal(Thyr_real_data.pressure) <= Convert.ToDecimal(max_min_tar_data.MAX_data_slice[id]))
                     {
                         aaa.ans = Thyr_real_data.pressure;
                     }
                     else
                     {
-                        //Log_message?.Invoke(name + " - недопустимое давление на датчике" + id.ToString());
-                        //Error_deal(true, portname);
-                        aaa.message = name + " -  BAD pressure!!! " + id.ToString() + "pressure = " + Thyr_real_data.pressure.ToString();
-                        aaa.need_error_procces = true;
-                        aaa.need_break = true;
+                        aaa.message = name + " -  old Tryr BAD pressure!!! " + id.ToString() + " pressure = " + Thyr_real_data.pressure.ToString();
+                        //в Em всегда нужно собирать данные пока есть возможность некуда переходить
+                        if (name != "Em")
+                        {
+                            aaa.need_error_procces = true;
+                            aaa.need_break = true;
+                        }
                     }
                     //}
                 }
             }
             catch (Exception exx)
             {
-                //Log_message?.Invoke(name + " - Thyracont parsing problem " + exx.Message.ToString());
-                //Error_deal(false, portname);
-                aaa.message = name + " - Thyracont parsing problem " + exx.Message.ToString();
+                aaa.message = name + " - old Thyracont parsing problem " + exx.Message.ToString();
                 aaa.need_error_procces = true;
             }
             return aaa;
@@ -2047,44 +2894,43 @@ namespace State_Machine_FWR
             {
                 try
                 {
-                    //TODO запихнуть в try
                     UPS_data UPC_real_data = new UPS_data
                     {
                         i_p_voltage = float.Parse(COM_ans.Substring(1, 5).Replace('.', ',')),
-                        //i_p_voltage = float.Parse(COM_ans.Substring(1, 5)),
                         i_p_f_voltage = float.Parse(COM_ans.Substring(7, 5).Replace('.', ',')),
-                        //i_p_f_voltage = float.Parse(COM_ans.Substring(7, 5)),
                         o_p_voltage = float.Parse(COM_ans.Substring(13, 5).Replace('.', ',')),
-                        //o_p_voltage = float.Parse(COM_ans.Substring(13, 5)),
                         o_p_current = int.Parse(COM_ans.Substring(19, 3)),
                         i_p_frequency = float.Parse(COM_ans.Substring(23, 4).Replace('.', ',')),
-                        //i_p_frequency = float.Parse(COM_ans.Substring(23, 4)),
                         Bat_level = int.Parse(COM_ans.Substring(28, 4)),
                         temperature = float.Parse(COM_ans.Substring(33, 4).Replace('.', ',')),
-                        //temperature = float.Parse(COM_ans.Substring(33, 4)),
                         ups_fault = int.Parse(COM_ans.Substring(38, 4))
                     };
-                    //Log_mes?.Invoke("A - test 5");
                     aaa = Compare_UPS_DQ1(UPC_real_data, portname);
                 }
                 catch (FormatException exx)
                 {
-                    //Log_message?.Invoke(name + " - parsing errror " + exx.Message.ToString());
-                    //Error_deal(false, portname);
                     aaa.message = name + " UPS parsing errror " + exx.Message.ToString();
                     aaa.need_error_procces = true;
                 }
                 catch (Exception ex)
                 {
-                    //Log_message?.Invoke(name + " - UPS comparison error" + ex.Message.ToString());
-                    //Error_deal(false, portname);
                     aaa.message = name + " UPS some error " + ex.Message.ToString();
                     aaa.need_error_procces = true;
                 }
             }
+            else if (name != "Em")
+            {
+                aaa.need_error_procces = true;
+                aaa.need_break = true;
+            }
             return aaa;
         }
-        //сравниваем и пишем биты реле М-7066
+        /// <summary>
+        /// сравниваем и пишем биты реле М-7066
+        /// </summary>
+        /// <param name="bit_now"></param>
+        /// <param name="i"></param>
+        /// <returns></returns>
         private bool Compare_bits(float bit_now, int i)
         {
             Write_to_StateInfo(bit_now, i);
@@ -2117,11 +2963,9 @@ namespace State_Machine_FWR
                     }
                     else
                     {
-                        //Error_deal(true, portname);
-                        //break;
                         aaa.message = name + " error M7066 value num = " + i.ToString();
-                        aaa.need_break = true;
-                        break;
+                        aaa.need_error_procces = true;
+                        
                     }
                     m--;
                 }
@@ -2135,7 +2979,12 @@ namespace State_Machine_FWR
             }
             return aaa;
         }
-        //запись ответа в информацию о состоянии
+        /// <summary>
+        /// запись ответа в информацию о состоянии
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="comID"></param>
+        /// <returns></returns>
         private bool Write_to_StateInfo(float ans, int comID)
         {
             bool res = false;
@@ -2158,7 +3007,11 @@ namespace State_Machine_FWR
             }
             return res;
         }
-        //тупо задача чтения из порта
+        /// <summary>
+        /// тупо задача чтения из порта
+        /// </summary>
+        /// <param name="port"></param>
+        /// <returns></returns>
         private Task<string> ReadTask(SerialPort port)
         {
             string message;
@@ -2176,29 +3029,67 @@ namespace State_Machine_FWR
             }
             return Task.FromResult(message);
         }
-        //посылка команды СОМ и получение ответа с использованием await TASK
-        private async Task<string> Send_command_to_COM_async(string comand, SerialPort port)
+        /// <summary>
+        /// специальный парсинг HEX
+        /// </summary>
+        /// <param name="comand"></param>
+        /// <returns></returns>
+        private byte[] Comand_complex_parse(string comand)
+        {
+            //var ans =new byte[] { };
+            //строка вида 00-00-AA-CC-FF
+            //нужно распарсить в unicode
+            string[] hex_comand = comand.Split('-');
+            int NumberChars = hex_comand.Length;
+            byte[] bytes = new byte[NumberChars];
+            for (int i = 0; i < NumberChars; i += 1)
+            {
+                bytes[i] = Convert.ToByte(hex_comand[i], 16);
+            }
+            return bytes;
+        }
+        /// <summary>
+        /// посылка команды СОМ и получение ответа с использованием await TASK
+        /// </summary>
+        /// <param name="comand"></param>
+        /// <param name="port"></param>
+        /// <returns></returns>
+        private async Task<string> Send_command_to_COM_async(string comand, SerialPort port, bool is_comlex)
         {
             if (port.IsOpen)
             {
+                //если комплексный парсинг - парсим
                 port.DiscardInBuffer();
                 string ans_message_com;
-                port.WriteLine(comand);
+                if (is_comlex)
+                {
+                    byte[] mess = Comand_complex_parse(comand);
+                    port.Write(mess, 0, mess.Length);
+                }
+                else
+                {                    
+                    port.WriteLine(comand);
+                }
                 ans_message_com = await ReadTask(port);
                 return ans_message_com;
             }
             else return "";
         }
-        //конструктор строки + команда на запись + проверка ответа
-        private void COM_write(Comand_COM com, SerialPort port, float data)
+        /// <summary>
+        /// конструктор строки + команда на запись + проверка ответа
+        /// </summary>
+        /// <param name="com"></param>
+        /// <param name="port"></param>
+        /// <param name="data"></param>
+        private void COM_write(Comand_COM com, SerialPort port, float new_val)
         {
             //конструируем строку ответа
-            string cc = Command_construct(com, data.ToString());
+            string cc = Command_construct(com, new_val.ToString());
             //шлем команду на запись
             Log_.Debug(name + " send" + port.PortName + ": " + cc);
             Log_message?.Invoke(name + " send" + port.PortName + ": " + cc);
             //string com_ans = Send_command_to_COM(cc, port, com.is_cr);
-            var a_com_ans = Send_command_to_COM_async(cc, port);
+            var a_com_ans = Send_command_to_COM_async(cc, port, com.is_complex_parse);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
@@ -2214,11 +3105,16 @@ namespace State_Machine_FWR
                 Log_.Error(name + " - readtask for write was Faulted " + port.PortName);
             }
         }
-        //расчет контрольной суммы для Pfeiffer
+        /// <summary>
+        /// расчет контрольной суммы для Pfeiffer
+        /// </summary>
+        /// <param name="str"></param>
+        /// <returns></returns>
         private int Check_sum(string str)
         {
             int chksum = 0;
-            Byte[] asciibytes = Encoding.ASCII.GetBytes(str);
+            //Byte[] asciibytes = Encoding.ASCII.GetBytes(str);
+            Byte[] asciibytes = Encoding.UTF8.GetBytes(str);
             foreach (Byte bt in asciibytes)
             {
                 chksum = chksum + int.Parse(bt.ToString());
@@ -2226,27 +3122,34 @@ namespace State_Machine_FWR
             chksum = chksum % 256;
             return chksum;
         }
-        //конструированеи окмманды для записи
-        private string Command_construct(Comand_COM ccc, string data)
+        /// <summary>
+        /// конструированеи окмманды для записи
+        /// </summary>
+        /// <param name="ccc"></param>
+        /// <param name="data"></param>
+        /// <returns></returns>
+        private string Command_construct(Comand_COM ccc, string new_val)
         {
             string ans = "";
             switch (ccc.id)
             {
                 case 15:
                     //FUG current
-                    ans = ccc.prefix + data;
+                    ans = ccc.prefix + new_val;
                     ans = ans.Replace(',', '.');
                     break;
                 case 16:
                     //FUG voltage
-                    ans = ccc.prefix + data;
+                    ans = ccc.prefix + new_val;
                     ans = ans.Replace(',', '.');
                     break;
                 case 18:
+                    //HV A detector
                 case 19:
+                    //HV B detector
                 case 20:
                 case 21:
-                    float.TryParse(data, out float a);
+                    float.TryParse(new_val, out float a);
                     if (a >= 0)
                     {
                         ans = ccc.prefix + "+" + a.ToString("00.000");
@@ -2261,35 +3164,56 @@ namespace State_Machine_FWR
                 case 27:
                 case 28:
                 case 29:
-                    //это М-7066
-                    ans = ccc.prefix + data + ccc.postfix;
+                    //реле
+                    ans = ccc.prefix + new_val + ccc.postfix;
                     break;
                 case 40:
-                    int.TryParse(data, out int val1);
+                case 74:
+                    //тип ХХХХХХ(bool) для Pfeiffer
+                    int.TryParse(new_val, out int val1);
                     ans = ccc.prefix + val1.ToString("000000");
                     int ch1 = Check_sum(ans);
                     ans = ans + ch1.ToString("000");
                     break;
                 case 42:
-                    //Pfeiffer
-                    //+значение + сrc
-                    //Log_message?.Invoke("test data= " + data);
-                    int.TryParse(data, out int val);
+                case 76:
+                    //Тип ХХХ для Pfeiffer
+                    int.TryParse(new_val, out int val);
                     ans = ccc.prefix + val.ToString("000");
-                    //Log_message?.Invoke("test ans = "+ans);
                     int ch = Check_sum(ans);
                     ans = ans + ch.ToString("000");
-                    //Log_message?.Invoke("test ans full = " + ans);
                     break;
                 case 104:
-                    //SETTEMP
-                    //float.TryParse(data, out float settemp);
-                    ans = ccc.prefix + data;
+                    //lakeShore SETTEMP
+                    ans = ccc.prefix + new_val;
                     break;
                 case 105:
-                    //Heater Range
-                    //int.TryParse(data, out int heater);
-                    ans = ccc.prefix + data;
+                    //lakeShore Heater Range
+                    ans = ccc.prefix + new_val;
+                    break;
+                case 126:
+                case 127:
+                case 128:
+                case 129:
+                case 130:
+                case 133:
+                    //laser
+                    ans = ccc.prefix + new_val;
+                    break;
+                case 137:
+                    //cryomech
+                    //КОСТЫЛЬ TODO вкл и выкл дается разными полями
+                    if (float.TryParse(new_val, out float n_val))
+                    {
+                        if (n_val==0)
+                        {
+                            ans = ccc.write_data_COM + ccc.prefix;
+                        }
+                        else
+                        {
+                            ans = ccc.write_data_COM + ccc.postfix;
+                        }
+                    }
                     break;
             }
 
@@ -2365,7 +3289,7 @@ namespace State_Machine_FWR
             //если критическая ошибка
             if (is_critical)
             {
-                Er_handle();
+                Em_handle();
             }
             else
             {
@@ -2396,35 +3320,44 @@ namespace State_Machine_FWR
             //false если какой-то из параметров не достиг целевого значения
             //true если можно двигаться
             //берем каждый параметр в словаре целевых значений
-            foreach (KeyValuePair<int, float> kv in max_min_tar_data.TAR_data_slice)
+            foreach (KeyValuePair<int, float> targ in max_min_tar_data.TAR_data_slice)
             {
-                if (StateInfo.ContainsKey(kv.Key) && max_min_tar_data.Step_minus.ContainsKey(kv.Key) && max_min_tar_data.Step_plus.ContainsKey(kv.Key))
+                if (StateInfo.ContainsKey(targ.Key) && max_min_tar_data.Step_minus.ContainsKey(targ.Key) && max_min_tar_data.Step_plus.ContainsKey(targ.Key))
                 {
                     //Log_message?.Invoke("stateinf="+StateInfo[kv.Key].ToString());
                     //Log_message?.Invoke("target  =" + kv.Value);
                     //если зн больше таргета, то сравниваем с шагом-
-                    if (StateInfo[kv.Key] > kv.Value)
+                    if (StateInfo[targ.Key] > targ.Value)
                     {
-                        if (StateInfo[kv.Key] - kv.Value >= max_min_tar_data.Step_minus[kv.Key])
+                        decimal diff = Convert.ToDecimal(StateInfo[targ.Key]) - Convert.ToDecimal(targ.Value);
+                        //if (StateInfo[targ.Key] - targ.Value >= max_min_tar_data.Step_minus[targ.Key])
+                        if (diff >= Convert.ToDecimal(max_min_tar_data.Step_minus[targ.Key]))
                         {
                             ans = false;
-                            Log_.Debug("Key " + kv.Key.ToString() + " not riched target (now = " + kv.Value.ToString() + ")");
+                            Log_.Debug("Key " + targ.Key.ToString() + " not riched target step_minus\ntarget = " +
+                                targ.Value.ToString() + "\nnow = " + 
+                                StateInfo[targ.Key].ToString() +
+                                "\nstep_minus = "+max_min_tar_data.Step_minus[targ.Key].ToString());
                         }
                     }
                     //если зн меньше таргета, то сравниваем с шагом+
-                    if (StateInfo[kv.Key] < kv.Value)
+                    if (StateInfo[targ.Key] < targ.Value)
                     {
-                        if (kv.Value - StateInfo[kv.Key] >= max_min_tar_data.Step_plus[kv.Key])
+                        decimal diff = Convert.ToDecimal(targ.Value) - Convert.ToDecimal(StateInfo[targ.Key]);
+                        if (diff >= Convert.ToDecimal(max_min_tar_data.Step_plus[targ.Key]))
                         {
                             ans = false;
-                            Log_.Debug("Key " + kv.Key.ToString() + " not riched target (now = " + kv.Value.ToString() + ")");
+                            Log_.Debug("Key " + targ.Key.ToString() + " not riched target step_plus\ntarget = " +
+                                targ.Value.ToString() + "\nnow = " + 
+                                StateInfo[targ.Key].ToString() +
+                                "\nstep_plus = " + max_min_tar_data.Step_plus[targ.Key].ToString());
                         }
                     }
                 }
                 else
                 {
                     //Log_message?.Invoke("no some keys = " + kv.Key.ToString());
-                    Log_.Error("no some keys = " + kv.Key.ToString());
+                    Log_.Error("no some keys = " + targ.Key.ToString());
                     ans = false;
                 }
             }
@@ -2516,7 +3449,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke("SS  - Go to PLLL");
                 Log_.Debug("SS  - Go to PLLL");
                 //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
-                _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context.Got_target_list_default("PLLL", _context.settings_path);
+                _context._Data.st_PLLL = _context.Got_target_list_default("PLLL", _context.settings_path);
                 _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
                 GC.Collect();
             }
@@ -2534,7 +3467,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke("SS  - Go to Er");
             Log_.Debug("SS  - Go to Er");
             //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_list_default("Er", _context.settings_path);
+            _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -2546,7 +3479,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke("SS  - Go to Em");
             Log_.Debug("SS  - Go to Em");
             //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -2611,7 +3544,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke("Er  - Go to SS");
             Log_.Debug("Er  - Go to SS");
             //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
-            _context._Data.st_SS.max_min_target.TAR_data_slice = _context.Got_target_list_default("SS", _context.settings_path);
+            _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
             //Log_.Trace(_context._Data.st_SS.max_min_target.TAR_data_slice[16].ToString());
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
             GC.Collect();
@@ -2633,7 +3566,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke("Er  - Go to Em");
             Log_.Debug("Er  - Go to Em");
             //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -2704,7 +3637,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke("Em  - Go to SS");
                 Log_.Debug("Em  - Go to SS");
                 //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
-                _context._Data.st_SS.max_min_target.TAR_data_slice = _context.Got_target_list_default("SS", _context.settings_path);
+                _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
                 _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
                 GC.Collect();
             }
@@ -2796,7 +3729,7 @@ namespace State_Machine_FWR
                     //Log_.Trace("reserved target slice");
                     //Log_.Trace(Str_get_from_dict(_context._reserved.st_SS.max_min_target.TAR_data_slice));
                     //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
-                    _context._Data.st_SS.max_min_target.TAR_data_slice = _context.Got_target_list_default("SS", _context.settings_path);
+                    _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
                     _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
                     GC.Collect();
                 }
@@ -2813,7 +3746,7 @@ namespace State_Machine_FWR
                     Kill_all_timers();
                     Log_mes?.Invoke("PLLL  - Go to PHLL");
                     Log_.Debug("PLLL  - Go to PHLL");
-                    _context._Data.st_PHLL.max_min_target.TAR_data_slice = _context.Got_target_list_default("PHLL", _context.settings_path);
+                    _context._Data.st_PHLL = _context.Got_target_list_default("PHLL", _context.settings_path);
                     //_context._Data.st_PHLL.max_min_target.TAR_data_slice = _context._reserved.st_PHLL.max_min_target.TAR_data_slice;
                     _context.TransitionTo(new PHLL_state(new Log_Handler(Log_mes), _context._Data.st_PHLL));
                     GC.Collect();
@@ -2835,7 +3768,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke("PLLL  - Go to Er");
                 Log_.Debug("PLLL  - Go to Er");
                 //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-                _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_list_default("Er", _context.settings_path);
+                _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
                 _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
                 GC.Collect();
             }
@@ -2846,7 +3779,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke("PLLL  - Go to Em");
                 Log_.Debug("PLLL  - Go to Em");
                 //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-                _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+                _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
                 _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
                 GC.Collect();
             }
@@ -2920,7 +3853,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke("PHLL  - Go to Er");
             Log_.Debug("PHLL  - Go to Er");
                 //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_list_default("Er", _context.settings_path);
+            _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -2931,7 +3864,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke("PHLL  - Go to Em");
                 Log_.Debug("PHLL  - Go to Em");
                 //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-                _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+                _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
                 _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
                 GC.Collect();
             }
@@ -2952,7 +3885,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to HVSB");
                 Log_.Debug(this.name + "  - Go to HVSB");
                 //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
-                _context._Data.st_HVSB.max_min_target.TAR_data_slice = _context.Got_target_list_default("HVSB", _context.settings_path);
+                _context._Data.st_HVSB = _context.Got_target_list_default("HVSB", _context.settings_path);
                 _context.TransitionTo(new HVSB_state(new Log_Handler(Log_mes), _context._Data.st_HVSB));
                 GC.Collect();
             }
@@ -3024,7 +3957,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to PLLL");
                 Log_.Debug(this.name + " - Go to PLLL");
                 //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
-                _context._Data.st_PLLL.max_min_target.TAR_data_slice = _context.Got_target_list_default("PLLL", _context.settings_path);
+                _context._Data.st_PLLL = _context.Got_target_list_default("PLLL", _context.settings_path);
                 _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
                 GC.Collect();
             }
@@ -3040,7 +3973,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to Er");
                 Log_.Debug(this.name + "  - Go to Er");
                 //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-                _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_list_default("Er", _context.settings_path);
+                _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
                 _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
                 GC.Collect();
             }
@@ -3051,7 +3984,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to Em");
                 Log_.Debug(this.name + "  - Go to Em");
                 //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-                _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+                _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
                 _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
                 GC.Collect();
             }
@@ -3119,7 +4052,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke(this.name + "  - Go to Em");
             Log_.Debug(this.name + "  - Go to Em");
             //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -3130,7 +4063,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke(this.name + "  - Go to Er");
             Log_.Debug(this.name + "  - Go to Er");
             //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_list_default("Er", _context.settings_path);
+            _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -3143,7 +4076,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to ALL");
                 Log_.Debug(this.name + "  - Go to ALL");
                 //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
-                _context._Data.st_ALL.max_min_target.TAR_data_slice = _context.Got_target_list_default("ALL", _context.settings_path);
+                _context._Data.st_ALL = _context.Got_target_list_default("ALL", _context.settings_path);
                 _context.TransitionTo(new ALL_state(new Log_Handler(Log_mes), _context._Data.st_ALL));
                 GC.Collect();
             }
@@ -3161,7 +4094,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to AN");
                 Log_.Debug(this.name + "  - Go to AN");
                 //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
-                _context._Data.st_AN.max_min_target.TAR_data_slice = _context.Got_target_list_default("AN", _context.settings_path);
+                _context._Data.st_AN = _context.Got_target_list_default("AN", _context.settings_path);
                 _context.TransitionTo(new AN_state(new Log_Handler(Log_mes), _context._Data.st_AN));
                 GC.Collect();
             }
@@ -3246,7 +4179,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke(this.name + "  - Go to Er");
             Log_.Debug(this.name + "  - Go to Er");
             //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-            _context._Data.st_Er.max_min_target.TAR_data_slice = _context.Got_target_list_default("Er", _context.settings_path);
+            _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
         }
@@ -3257,7 +4190,7 @@ namespace State_Machine_FWR
             Log_mes?.Invoke(this.name + "  - Go to Em");
             Log_.Debug(this.name + "  - Go to Em");
             //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-            _context._Data.st_Em.max_min_target.TAR_data_slice = _context.Got_target_list_default("Em", _context.settings_path);
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
@@ -3279,7 +4212,7 @@ namespace State_Machine_FWR
                 Log_mes?.Invoke(this.name + "  - Go to HVSB");
                 Log_.Debug(this.name + " - Go to HVSB");
                 //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
-                _context._Data.st_HVSB.max_min_target.TAR_data_slice = _context.Got_target_list_default("HVSB", _context.settings_path);
+                _context._Data.st_HVSB = _context.Got_target_list_default("HVSB", _context.settings_path);
                 _context.TransitionTo(new HVSB_state(new Log_Handler(Log_mes), _context._Data.st_HVSB));
                 GC.Collect();
             }

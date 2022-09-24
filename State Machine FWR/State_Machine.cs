@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.Sockets;
 using Newtonsoft.Json;
 using NLog;
+using System.IO.Compression;
 
 namespace State_Machine_FWR
 {
@@ -632,14 +633,15 @@ namespace State_Machine_FWR
         public string name;
         public int MAXMIN_version;
         //public System.Threading.Timer TCP_timer1;
-        public System.Threading.Timer COM1_timer;
-        public System.Threading.Timer COM2_timer;
-        public System.Threading.Timer COM3_timer;
-        public System.Threading.Timer COM4_timer;
-        public System.Threading.Timer COM5_timer;
-        public System.Threading.Timer COM6_timer;
-        public System.Threading.Timer COM7_timer;
-        public System.Threading.Timer COM8_timer;
+        private System.Threading.Timer COM1_timer;
+        private System.Threading.Timer COM2_timer;
+        private System.Threading.Timer COM3_timer;
+        private System.Threading.Timer COM4_timer;
+        private System.Threading.Timer COM5_timer;
+        private System.Threading.Timer COM6_timer;
+        private System.Threading.Timer COM7_timer;
+        private System.Threading.Timer COM8_timer;
+        private System.Threading.Timer timer_log_archive;
         //public System.Threading.Timer TCP_timer;
         public SerialPort _serialPort_8;
         public SerialPort _serialPort_7;
@@ -662,7 +664,7 @@ namespace State_Machine_FWR
         public AutoResetEvent event_7 = new AutoResetEvent(true);
         public AutoResetEvent event_8 = new AutoResetEvent(true);
         //public AutoResetEvent event_TCP = new AutoResetEvent(true);
-        public ConcurrentDictionary<int, float> StateInfo = new ConcurrentDictionary<int, float>(); //писывает состояние стэйта
+        public ConcurrentDictionary<int, float> StateInfo = new ConcurrentDictionary<int, float>(); //описывает состояние стэйта
         private ConcurrentDictionary<int, float> Push_target_list = new ConcurrentDictionary<int, float>(); //список изменений в целевые значения
         //public List<string> IP_adress;
         private bool first_loop1 = true;
@@ -727,13 +729,12 @@ namespace State_Machine_FWR
                     ALL_handle();
                     break;
                 default:
-                    Log_message?.Invoke("we go defoault");
+                    Log_message?.Invoke("some problems with state recongnition");
                     Log_.Debug("some problems with state recongnition");
-                    //_context.Logg.Debug
                     break;
             }
         }
-        //запуск таймеров на все порты
+        //запуск таймеров на все порты + таймер на архивацию старых логов
         public void RunTimer(List<Comand_COM> list1,
                               List<Comand_COM> list2,
                               List<Comand_COM> list3,
@@ -908,7 +909,79 @@ namespace State_Machine_FWR
                     Log_.Debug(name + " no COMPORT" + com_settings.COM_port_8.Name);
                 }
             }
-
+            //запуск таймера на архивацию старых логов
+            System.Threading.TimerCallback timer_clear_logs = new System.Threading.TimerCallback(Clear_logs_tick);
+            timer_log_archive = new System.Threading.Timer(timer_clear_logs, null, new TimeSpan(0, 15, 0), new TimeSpan(1, 0, 0));
+        }
+        /// <summary>
+        /// тик для таймера архивации логов
+        /// </summary>
+        /// <param name="state"></param>
+        private void Clear_logs_tick(object state)
+        {
+            Del_log_files(Directory.GetCurrentDirectory() + @"\logs");
+            GC.Collect();
+            //Del_log_files(Directory.GetCurrentDirectory() + @"\logs\Info");
+            Del_log_files(Directory.GetCurrentDirectory() + @"\logs\TCP_Log");
+            GC.Collect();
+        }
+        /// <summary>
+        /// Архивация логов
+        /// </summary>
+        /// <param name="path"></param>
+        private async void Del_log_files(string path)
+        {
+            string[] files_z = Directory.GetFiles(path);
+            string current_date = DateTime.Now.ToString("yyyy-MM-dd-HH");
+            foreach (string str in files_z)
+            {
+                try
+                {
+                    string file_date = str.Substring(str.Length - 17, 13);
+                    //Log_message?.Invoke(file_date);
+                    if (current_date != file_date)
+                    {
+                        //добавляем в архив
+                        //проверить на существование директории
+                        DirectoryInfo dir = new DirectoryInfo(path + @"\archives");
+                        if (!dir.Exists)
+                        {
+                            dir.Create();
+                        }
+                        using (FileStream zipopen = new FileStream(path + @"\archives\logs.zip", FileMode.OpenOrCreate))
+                        {
+                            using (ZipArchive arch = new ZipArchive(zipopen, ZipArchiveMode.Update))
+                            {
+                                using (FileStream read_stream = new FileStream(str, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+                                {
+                                    byte[] buff = new byte[read_stream.Length];
+                                    await read_stream.ReadAsync(buff, 0, buff.Length);
+                                    ZipArchiveEntry newf = arch.CreateEntry(str.Substring(str.Length - 17, 17));
+                                    using (StreamWriter wr = new StreamWriter(newf.Open()))
+                                    {
+                                        await wr.WriteAsync(Encoding.Default.GetString(buff));
+                                    }
+                                    Array.Clear(buff, 0, buff.Length);
+                                    newf = null;
+                                }                                                                
+                            }
+                        }
+                        //удаляем
+                        FileInfo file_to_del = new FileInfo(str);
+                        if (file_to_del.Exists)
+                        {
+                            file_to_del.Delete();
+                        }
+                    }                    
+                }
+                catch (Exception ex)
+                {
+                    //Log_message?.Invoke("exeption ZIPping logs \nfile = " + str + "\n" + ex.Message.ToString() + "\n" + ex.ToString());
+                    Log_.Error("exeption ZIPping logs \nfile = " + str + "\n" + ex.ToString());
+                }
+                GC.Collect();
+            }
+            files_z = null;
         }
         //тик для таймера 1
         private void Tick_com1(object state)
@@ -1026,6 +1099,11 @@ namespace State_Machine_FWR
                 //Log_message?.Invoke("block finally");
             }
         }
+        /// <summary>
+        /// сделать строку из словаря вида "Key1 Val1;Key2 Val2;"
+        /// </summary>
+        /// <param name="t"></param>
+        /// <returns></returns>
         public string Str_get_from_dict(ConcurrentDictionary<int, float> t)
         {
             string ans = "";
@@ -1154,7 +1232,11 @@ namespace State_Machine_FWR
                 //Log_message?.Invoke("block finally");
             }
         }
-        //настройка СОМ порта
+        /// <summary>
+        /// настройка СОМ порта
+        /// </summary>
+        /// <param name="portsett"></param>
+        /// <returns></returns>
         private SerialPort Ini_comport(Com_port portsett)
         {
             SerialPort port = new SerialPort(portsett.Name, portsett.Baudrate);
@@ -1174,19 +1256,22 @@ namespace State_Machine_FWR
             port.DataBits = portsett.Databits;
             port.ReadTimeout = portsett.Readtimeout;
             port.WriteTimeout = portsett.Writetimeout;
-            //if (COMs_setting.COM_port_1.is)
             if (portsett.EndLine != null) port.NewLine = portsett.EndLine;
-            //port.Handshake.
             //КОСТЫЛЬ
             if (portsett.Name == "COM2")
             {
-                //port.Handshake = Handshake.RequestToSendXOnXOff;
                 port.DtrEnable = true;
                 port.RtsEnable = true;                
             }
             return port;
         }
-        //запрос чтения параметра и получение ответа
+        /// <summary>
+        /// запрос чтения параметра и получение ответа
+        /// </summary>
+        /// <param name="port"></param>
+        /// <param name="comand"></param>
+        /// <param name="num_loop"></param>
+        /// <returns></returns>
         private COM_data_Out Send_and_Read(SerialPort port, Comand_COM comand, int num_loop)
         {
             COM_data_Out out_data = new COM_data_Out
@@ -1195,13 +1280,13 @@ namespace State_Machine_FWR
                 need_error_procces = false,
                 ans = -999
             };
-            Log_message?.Invoke(name + " send" + port.PortName + ": " + comand.read_data_COM);
+            //Log_message?.Invoke(name + " send" + port.PortName + ": " + comand.read_data_COM);
             Log_.Debug(name + " send" + port.PortName + ": " + comand.read_data_COM);
             var a_com_ans = Send_command_to_COM_async(comand.read_data_COM, port, comand.is_complex_parse);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
-                Log_message?.Invoke(name + " recv" + port.PortName + ": " + com_ans);
+                //Log_message?.Invoke(name + " recv" + port.PortName + ": " + com_ans);
                 Log_.Debug(name + " recv" + port.PortName + ": " + com_ans);
                 if (com_ans != "timeout" && com_ans != "port closed" && com_ans != "")
                 {
@@ -1230,7 +1315,13 @@ namespace State_Machine_FWR
             }
             return out_data;
         }
-        //опрос СОМ
+        /// <summary>
+        /// опрос СОМ для тела таймеров
+        /// </summary>
+        /// <param name="port"></param>
+        /// <param name="commands"></param>
+        /// <param name="Is_first"></param>
+        /// <param name="num_loop"></param>
         private void COM_ask(SerialPort port, List<Comand_COM> commands, bool Is_first, int num_loop)
         {
             //счетчик успешных циклов
@@ -1627,7 +1718,13 @@ namespace State_Machine_FWR
             }
             return answer;
         }
-        //Heater range для LakeShore
+        /// <summary>
+        /// парсинг Heater range для LakeShore
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
         private COM_data_Out Parse_LakeShore_Heater(string ans, int id, int portname)
         {
             COM_data_Out aaa = new COM_data_Out { };
@@ -1654,7 +1751,13 @@ namespace State_Machine_FWR
 
             return aaa;
         }
-        //setpoint для LakeShore
+        /// <summary>
+        /// парсинг setpoint для LakeShore
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
         private COM_data_Out Parse_LakeShore_SetPoint(string ans, int id, int portname)
         {
             COM_data_Out aaa = new COM_data_Out { };
@@ -1681,7 +1784,13 @@ namespace State_Machine_FWR
 
             return aaa;
         }
-        //контроллер температуры LakeShore TEMP
+        /// <summary>
+        /// парсинг температуры контроллер температуры LakeShore TEMP
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="id"></param>
+        /// <param name="portname"></param>
+        /// <returns></returns>
         private COM_data_Out Parse_LakeShore_Temp(string ans, int id, int portname)
         {
             COM_data_Out aaa = new COM_data_Out { };
@@ -1809,7 +1918,7 @@ namespace State_Machine_FWR
                 {
                     int dat_len = int.Parse(ans.Substring(8, 2));
                     aaa.ans = float.Parse(ans.Substring(10, dat_len));
-                    Log_message?.Invoke("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
+                    //Log_message?.Invoke("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
                     Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
                     Write_to_StateInfo(aaa.ans, id);
                     //проврека на МАКС/МИН
@@ -2517,7 +2626,7 @@ namespace State_Machine_FWR
                             }                            
                         }
                         if (StateInfo.TryGetValue(19, out float val19_19_1)
-                            && Convert.ToDecimal(new_value) < Convert.ToDecimal(val19_19_1))
+                            && ((Convert.ToDecimal(new_value) < Convert.ToDecimal(val19_19_1)) || (Convert.ToDecimal(new_value)<=0)))
                         {
                             ans = true;
                         }
@@ -2611,6 +2720,12 @@ namespace State_Machine_FWR
             }
             return ans;
         }
+        /// <summary>
+        /// расчета шага (для некоторых парметров включен адаптивный шаг)
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="old_val"></param>
+        /// <returns></returns>
         private float Calc_step(int id, float old_val)
         {
             float ans = old_val;
@@ -2640,6 +2755,12 @@ namespace State_Machine_FWR
             }
             return ans;
         }
+        /// <summary>
+        /// получить значение нового шага с учетом МАКС/МИН или адаптивности
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="old_val"></param>
+        /// <returns></returns>
         private float Get_new_val(int id, float old_val)
         {
             float ans = old_val;
@@ -2647,6 +2768,8 @@ namespace State_Machine_FWR
             if (old_val < max_min_tar_data.MIN_data_slice[id])
             {
                 ans = old_val + max_min_tar_data.Step_plus[id];
+                //проверка на выход за диапазон
+                if (ans > max_min_tar_data.MAX_data_slice[id]) ans = max_min_tar_data.MAX_data_slice[id];
                 Log_.Debug("param " + id.ToString() + " MIN limit exceeded");
             }
             else
@@ -2654,7 +2777,9 @@ namespace State_Machine_FWR
                 //если больше макс - сразу меняем
                 if (old_val > max_min_tar_data.MAX_data_slice[id])
                 {
-                    ans = old_val - max_min_tar_data.Step_plus[id];
+                    ans = old_val - max_min_tar_data.Step_minus[id];
+                    //проверка на выход за диапазон
+                    if (ans < max_min_tar_data.MIN_data_slice[id]) ans = max_min_tar_data.MIN_data_slice[id];
                     Log_.Debug("param " + id.ToString() + " MAX limit exceeded");
                 }
                 else
@@ -2672,7 +2797,12 @@ namespace State_Machine_FWR
 
             return ans;
         }
-        //проверка нужно ли изменение параметра
+        /// <summary>
+        /// проверка нужно ли изменение параметра, если да, то пишем новое значение
+        /// </summary>
+        /// <param name="ans"></param>
+        /// <param name="com"></param>
+        /// <param name="port"></param>
         private void Check_and_write(float ans, Comand_COM com, SerialPort port)
         {
             try
@@ -2701,17 +2831,20 @@ namespace State_Machine_FWR
                     Push_target_list.TryRemove(com.id, out _);
                 }
                 //получаем значение новое
-                //если разрешено - делаем шаг
+                //в том числе и конструируем его
                 float new_val = Get_new_val(com.id, ans);
+                //если разрешено - делаем шаг
                 if (Can_change(com.id, new_val) && new_val!=ans)
                 {
                     //делаем шаг вперед
                     COM_write(com, port, new_val);
                     Log_.Debug("yes we change param "+com.id.ToString() + " to "+ new_val.ToString()+"-"+"\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
+                    Log_message?.Invoke("yes we change param " + com.id.ToString() + " to " + new_val.ToString() + "-" + "\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
                 }
                 else
                 {
                     Log_.Debug("param " + com.id.ToString() + " change not allowed\nnew val = "+new_val.ToString()+"\nold val = "+ans.ToString());
+                    //Log_message?.Invoke("param " + com.id.ToString() + " change not allowed\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
                 }
             }
             catch (Exception ex)
@@ -2792,6 +2925,8 @@ namespace State_Machine_FWR
             {
                 if (com_ans.Length > 10)
                 {
+                    //TODO заглушка - удаление пробелов
+                    com_ans = com_ans.Trim();
                     if (com_ans.Substring(3, 1) != "7")
                     {
                         int data_len = int.Parse(com_ans.Substring(7, 1));
@@ -2851,6 +2986,8 @@ namespace State_Machine_FWR
                 if (com_ans.Length > 10)
                 {
                     //TODO дописать проверки для неверные данные
+                    //TODO заглушка - удаление пробелов
+                    com_ans = com_ans.Trim();
                     Thyr_data Thyr_real_data = new Thyr_data
                     {
                         pressure = float.Parse(com_ans.Substring(4, 4))
@@ -3087,21 +3224,21 @@ namespace State_Machine_FWR
             string cc = Command_construct(com, new_val.ToString());
             //шлем команду на запись
             Log_.Debug(name + " send" + port.PortName + ": " + cc);
-            Log_message?.Invoke(name + " send" + port.PortName + ": " + cc);
+            //Log_message?.Invoke(name + " send" + port.PortName + ": " + cc);
             //string com_ans = Send_command_to_COM(cc, port, com.is_cr);
             var a_com_ans = Send_command_to_COM_async(cc, port, com.is_complex_parse);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
                 Log_.Debug(name + " rcv" + port.PortName + ": " + com_ans);
-                Log_message?.Invoke(name + " rcv" + port.PortName + ": " + com_ans);
+                //Log_message?.Invoke(name + " rcv" + port.PortName + ": " + com_ans);
                 //проверяем ответ на команду записи
                 //TODO
             }
             else
             {
                 //TODO обработка ошибки
-                Log_message?.Invoke(name + " - readtask for write was Faulted " + port.PortName);
+                //Log_message?.Invoke(name + " - readtask for write was Faulted " + port.PortName);
                 Log_.Error(name + " - readtask for write was Faulted " + port.PortName);
             }
         }
@@ -3237,42 +3374,42 @@ namespace State_Machine_FWR
         {
             if (Kill_One_timer(COM1_timer, _serialPort_1, event_1))
             {
-                Log_message?.Invoke(name + " timer 1 killed");
+                //Log_message?.Invoke(name + " timer 1 killed");
                 Log_.Debug(name + " timer 1 killed");
             }
             if (Kill_One_timer(COM2_timer, _serialPort_2, event_2))
             {
-                Log_message?.Invoke(name + " timer 2 killed");
+                //Log_message?.Invoke(name + " timer 2 killed");
                 Log_.Error(name + " timer 2 killed");
             }
             if (Kill_One_timer(COM3_timer, _serialPort_3, event_3))
             {
-                Log_message?.Invoke(name + " timer 3 killed");
+                //Log_message?.Invoke(name + " timer 3 killed");
                 Log_.Error(name + " timer 3 killed");
             }
             if (Kill_One_timer(COM4_timer, _serialPort_4, event_4))
             {
-                Log_message?.Invoke(name + " timer 4 killed");
+                //Log_message?.Invoke(name + " timer 4 killed");
                 Log_.Error(name + " timer 4 killed");
             }
             if (Kill_One_timer(COM5_timer, _serialPort_5, event_5))
             {
-                Log_message?.Invoke(name + " timer 5 killed");
+                //Log_message?.Invoke(name + " timer 5 killed");
                 Log_.Error(name + " timer 5 killed");
             }
             if (Kill_One_timer(COM6_timer, _serialPort_6, event_6))
             {
-                Log_message?.Invoke(name + " timer 6 killed");
+                //Log_message?.Invoke(name + " timer 6 killed");
                 Log_.Error(name + " timer 6 killed");
             }
             if (Kill_One_timer(COM7_timer, _serialPort_7, event_7))
             {
-                Log_message?.Invoke(name + " timer 7 killed");
+                //Log_message?.Invoke(name + " timer 7 killed");
                 Log_.Error(name + " timer 7 killed");
             }
             if (Kill_One_timer(COM8_timer, _serialPort_8, event_8))
             {
-                Log_message?.Invoke(name + " timer 8 killed");
+                //Log_message?.Invoke(name + " timer 8 killed");
                 Log_.Error(name + " timer 8 killed");
             }
             //останавливаем TCP

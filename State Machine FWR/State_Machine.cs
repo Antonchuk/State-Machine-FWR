@@ -910,8 +910,8 @@ namespace State_Machine_FWR
                 }
             }
             //запуск таймера на архивацию старых логов
-            System.Threading.TimerCallback timer_clear_logs = new System.Threading.TimerCallback(Clear_logs_tick);
-            timer_log_archive = new System.Threading.Timer(timer_clear_logs, null, new TimeSpan(0, 15, 0), new TimeSpan(1, 0, 0));
+            //System.Threading.TimerCallback timer_clear_logs = new System.Threading.TimerCallback(Clear_logs_tick);
+            //timer_log_archive = new System.Threading.Timer(timer_clear_logs, null, new TimeSpan(0, 15, 0), new TimeSpan(1, 0, 0));
         }
         /// <summary>
         /// тик для таймера архивации логов

@@ -948,6 +948,7 @@ namespace State_Machine_FWR
                         {
                             dir.Create();
                         }
+                        //поменять вместо 1 файла - каждый раз новый архив.
                         using (FileStream zipopen = new FileStream(path + @"\archives\logs.zip", FileMode.OpenOrCreate))
                         {
                             using (ZipArchive arch = new ZipArchive(zipopen, ZipArchiveMode.Update))

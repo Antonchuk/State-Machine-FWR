@@ -23,6 +23,7 @@ namespace State_Machine_FWR
         public string State_name;
         public bool Ready_for_lock;
         public int MaxMin_version;
+        public List<string> messages;
     }
     public struct TCP_client_message
     {
@@ -199,9 +200,95 @@ namespace State_Machine_FWR
         public bool need_error_procces;
         public string message;
     }
-
-
-    //машина состояний
+    /// <summary>
+    /// мастер очередей сообщений для TCP клиентов
+    /// </summary>
+    public class Queue_master
+    {
+        /// <summary>
+        /// словарь номеров очредей и адресов клиентов
+        /// </summary>
+        public ConcurrentDictionary<int, IPAddress> queue_list;
+        public static Logger Logg = LogManager.GetCurrentClassLogger();
+        /// <summary>
+        /// список очередей (номер здесь = номеру в словаре????)
+        /// </summary>
+        public List<ConcurrentQueue<string>> queues;
+        public Queue_master()
+        {
+            queue_list = new ConcurrentDictionary<int, IPAddress>();
+            queues = new List<ConcurrentQueue<string>>();
+        }
+        /// <summary>
+        /// ищем номер очереди с таким ИД, если нет -1
+        /// </summary>
+        /// <param name="adr"></param>
+        /// <returns></returns>
+        private int Find_adr(IPAddress adr)
+        {
+            int ans = -1;
+            foreach (KeyValuePair<int, IPAddress> p in queue_list)
+            {
+                if (p.Value==adr)
+                {
+                    ans = p.Key;
+                }
+            }
+            return ans;
+        }
+        /// <summary>
+        /// запрос на добавление новой очереди для новго клиента и полчение номера очереди
+        /// </summary>
+        /// /// <param name="adr"></param>
+        /// <returns> номер очереди </returns>
+        public int Add_new_que(IPAddress adr)
+        {
+            Logg.Debug("start find new q for "+adr.ToString());
+            int ans = -1;
+            //проверяем есть ли такой клиент
+            int new_id = Find_adr(adr);
+            Logg.Debug("existing id for " + adr.ToString()+ " = " + new_id.ToString());
+            if (new_id!=-1)
+            {
+                //если есть - очищаем его очередь
+                foreach (string str in queues[new_id])
+                {
+                    queues[new_id].TryDequeue(out _);
+                }                    
+                return new_id; 
+            }            
+            //добавляем новую очередь
+            new_id = queue_list.Count;
+            ans = new_id;
+            Logg.Debug("add new id for " + adr.ToString() + " = " + new_id.ToString());
+            queue_list.TryAdd(new_id, adr);
+            queues.Add(new ConcurrentQueue<string>());
+            return ans;
+        }        
+        //удаляем очередь
+        public bool Del_queue(int q_num)
+        {
+            Logg.Debug("deleting queue nub " + q_num.ToString());
+            bool ans = false;
+            if (queue_list.ContainsKey(q_num))
+            {                
+                queues.Remove(queues[q_num]);
+                queue_list.TryRemove(q_num, out _);
+                ans = true;
+            }
+            return ans;
+        }
+        public void SimpleMessage(string str)
+        {
+            foreach (ConcurrentQueue<string> qq in queues)
+            {
+                qq.Enqueue(str);
+            }
+        }
+    }
+    /// <summary>
+    /// машина состояний
+    /// </summary>
     public class State_Machine
     {
         public State _state = null; //изменен модификатор c private to public 
@@ -219,6 +306,8 @@ namespace State_Machine_FWR
         public static Logger Logg = LogManager.GetCurrentClassLogger();
         public string settings_path = "";
         public static bool is_TCP_running = true;
+        public Queue_master q_master;
+        //public ConcurrentQueue<string> messages = new ConcurrentQueue<string>();
         //Info - только для данных с установки
         //Debug - все события
 
@@ -253,12 +342,9 @@ namespace State_Machine_FWR
             //cts = new CancellationTokenSource();
 
             //зпускаем сервак            
-            //TCP_Server_async.Log_TCP_Server_Handler lll = new TCP_Server_async.Log_TCP_Server_Handler(logger);
-            //TCP_Server_async serv = new TCP_Server_async(lll);
-            //serv.Run_Listener(_Data.TCP1_port);
-            //TCP_Client cll = new TCP_Client();
             Logg.Trace("start TCP server");
-
+            //запуск мастера очередей
+            q_master = new Queue_master();
             StartTCPserver();
             //ConnectAs_clientTCP("self test");
             Logg.Debug("start first state");
@@ -398,7 +484,14 @@ namespace State_Machine_FWR
             }
             return tcpClient;
         }
-        private TCP_message TCP_message_construct()
+        private void Clear_queue(int q_num)
+        {
+            while (q_master.queues[q_num].Count>=1)
+            {
+                q_master.queues[q_num].TryDequeue(out _);
+            }
+        }
+        private TCP_message TCP_message_construct(int q_num)
         {
             TCP_message mess = new TCP_message();
             //'state';'name of state';'можно ли залочиться для управления';'версия МАКС-МИН'
@@ -418,14 +511,29 @@ namespace State_Machine_FWR
             mess.MaxMin_version = _state.MAXMIN_version;
             mess.State_info = _state.StateInfo;
             mess.State_name = _state.name;
+            mess.messages = new List<string>();
+            if (q_master.queues.Count >= q_num)
+            {
+                foreach (string str in q_master.queues[q_num])
+                {
+                    mess.messages.Add(str);
+                }
+            }
+            //очищаем очередь сообщений
+            Clear_queue(q_num);
             //state_inf = state_inf + ";" + _state.name +";"+ is_ready_manage.ToString()+";"+_state.MAXMIN_version ;
             return mess;
         }
-        //простое ответ-запрос общение с клинетом
-        private async Task<bool> Simple_TCP_talk(NetworkStream TCPstream, CancellationToken ttt, string IP_cl)
+        /// <summary>
+        /// простое ответ-запрос общение с клинетом
+        /// </summary>
+        /// <param name="TCPstream"></param>
+        /// <param name="ttt"></param>
+        /// <param name="IP_cl"></param>
+        /// <returns></returns>
+        private async Task<bool> Simple_TCP_talk(NetworkStream TCPstream, CancellationToken ttt, string IP_cl, int q_num)
         {
             bool ans = false;
-            //if (TCPstream.)
             if (_state != null && _state.StateInfo != null)
             {
                 //Log_m(TCPstream.CanTimeout.ToString()); //всегда true
@@ -438,47 +546,18 @@ namespace State_Machine_FWR
                     var buffer_in = new byte[1024];
                     var byte_count = await TCPstream.ReadAsync(buffer_in, 0, buffer_in.Length, ttt);
                     string client_q = Encoding.UTF8.GetString(buffer_in, 0, byte_count);
-                    //string client_q = Encoding.ASCII.GetString(buffer_in, 0, byte_count);
                     Logg.Trace("Client "+ IP_cl + "= " + client_q);
-                    /*if (client_q != "")
-                    {
-                        string m = "default string";
-                        try
-                        {
-                            m = JsonConvert.SerializeObject(TCP_message_construct());
-                        }
-                        catch (Exception ex)
-                        {
-                            Logg.Trace("exeption in serialization\n" + ex.ToString());
-                        }
-                        byte[] message = Encoding.ASCII.GetBytes(m);
-                        //пишем ему ответ
-                        Logg.Trace("Server = " + m);
-                        await TCPstream.WriteAsync(message, 0, message.Length, ttt);
-                        buffer_in = new byte[1024];
-                        var b_c = await TCPstream.ReadAsync(buffer_in, 0, buffer_in.Length, ttt);
-                        string client_ask = Encoding.ASCII.GetString(buffer_in, 0, b_c);
-                        //парсим команды полученые                        
-                        //Log_m?.Invoke("Client = " + client_ask);
-                        Logg.Trace("Client "+ IP_cl + " = " + client_ask);
-                        Client_ans_Parse(client_ask);
-                        ans = true;
-                    }
-                    else
-                        ans = false;
-                    */
                     ans = true;
                     Client_ans_Parse(client_q);
                     string m = "default string";
                     try
                     {
-                        m = JsonConvert.SerializeObject(TCP_message_construct());
+                        m = JsonConvert.SerializeObject(TCP_message_construct(q_num));
                     }
                     catch (Exception ex)
                     {
                         Logg.Trace("exeption in serialization\n" + ex.ToString());
                     }
-                    //byte[] message = Encoding.ASCII.GetBytes(m);
                     byte[] message = Encoding.UTF8.GetBytes(m);
                     //пишем ему ответ
                     Logg.Trace("Server = " + m);
@@ -505,7 +584,7 @@ namespace State_Machine_FWR
         /// </summary>
         /// <param name="c"></param>
         /// <returns></returns>
-        private async Task Process_TCP_Client(TcpClient c, string IP_cl)
+        private async Task Process_TCP_Client(TcpClient c, string IP_cl, int q_num)
         {
 
             //цикл общения с таймаутом
@@ -520,7 +599,7 @@ namespace State_Machine_FWR
                 try
                 {
                     s_cst_client.CancelAfter(TimeSpan.FromSeconds(5));
-                    bool res = await Simple_TCP_talk(stream, s_cst_client.Token, IP_cl);
+                    bool res = await Simple_TCP_talk(stream, s_cst_client.Token, IP_cl, q_num);
                     Logg.Trace("after simple talk, res = " + res.ToString());
                     if (!res) is_asking = false;
                 }
@@ -537,13 +616,15 @@ namespace State_Machine_FWR
             }
             Logg.Trace("end using this connection");
             stream.Close();
+            //удаляем очередь
+            q_master.Del_queue(q_num);
             //}
 
         }
-        //парсим ответ клиента
-        //list[0] - connect/disconnect
-        //list[1] - новое состояние
-        //list[2] - список команд
+        /// <summary>
+        /// парсим ответ клиента
+        /// </summary>
+        /// <param name="commands"></param>
         private void Client_ans_Parse(string commands)
         {
             try
@@ -587,7 +668,7 @@ namespace State_Machine_FWR
         {
             var tcpListerner = TcpListener.Create(7451);
             tcpListerner.Start();
-            Logg.Trace("server started");
+            Logg.Trace("server started");            
             while (is_TCP_running) // тут какое-то разумное условие выхода
             {
                 try
@@ -601,10 +682,10 @@ namespace State_Machine_FWR
                         //клиент реален
                         //Log_m?.Invoke("Connected client: "+true_client.Client.RemoteEndPoint.ToString());
                         //Log_m?.Invoke("Update remote client: " + IPAddress.Parse(((IPEndPoint)true_client.Client.RemoteEndPoint).Address.ToString()) + ":" + ((IPEndPoint)true_client.Client.RemoteEndPoint).Port.ToString());
-                        Logg.Trace("Got client: " + IPAddress.Parse(((IPEndPoint)res.Client.RemoteEndPoint).Address.ToString()) + ":" + ((IPEndPoint)res.Client.RemoteEndPoint).Port.ToString());
-                        //Log_m?.Invoke("Connected client: " + IPAddress.Parse(((IPEndPoint)true_client.Client.LocalEndPoint).Address.ToString()) + "on port number " + ((IPEndPoint)true_client.Client.LocalEndPoint).Port.ToString());
-                        //EndPoint LocAddr = true_client.Client.LocalEndPoint;
-                        Process_TCP_Client(res, IPAddress.Parse(((IPEndPoint)res.Client.RemoteEndPoint).Address.ToString()).ToString());
+                        IPAddress adr = IPAddress.Parse(((IPEndPoint)res.Client.RemoteEndPoint).Address.ToString());
+                        Logg.Trace("Got client: " + adr.ToString() + ":" + ((IPEndPoint)res.Client.RemoteEndPoint).Port.ToString());
+                        int _queue = q_master.Add_new_que(adr);
+                        Process_TCP_Client(res, adr.ToString(), _queue);
                     }
                 }
                 catch (OperationCanceledException ex)
@@ -618,7 +699,6 @@ namespace State_Machine_FWR
                 }
                 finally
                 {
-
                     s_cts.Dispose();
                 }
                 Logg.Trace("waiting next client .....");
@@ -678,8 +758,13 @@ namespace State_Machine_FWR
         private bool[] error_count = new bool[8] { false, false, false, false, false, false, false, false }; //false - не было ошибок
         private bool[] finished_previous = new bool[8] { true, true, true, true, true, true, true, true }; //true - если предыдущее закончено
         private int[] ini_comands_count = new int[8] { 0, 0, 0, 0, 0, 0, 0, 0 }; //количество комманд инициации
+        private object[] _lockers;
         public Logger Log_ = LogManager.GetCurrentClassLogger();
-        //просто пихает в список изменение, старые перезаписываются
+        /// <summary>
+        /// просто пихает в список изменение, старые перезаписываются
+        /// </summary>
+        /// <param name="key_target"></param>
+        /// <param name="value_target"></param>
         public void Push_target_value(int key_target, float value_target)
         {
             if (max_min_tar_data.MAX_data_slice.ContainsKey(key_target) && (value_target > max_min_tar_data.MAX_data_slice[key_target]))
@@ -699,7 +784,10 @@ namespace State_Machine_FWR
                 Push_target_list.TryAdd(key_target, value_target);
             }
         }
-        //команды изменения состояния
+        /// <summary>
+        /// команды изменения состояния, name - имя нового состояния
+        /// </summary>
+        /// <param name="name"></param>
         public void Push_change_state(string name)
         {
             switch (name)
@@ -734,6 +822,15 @@ namespace State_Machine_FWR
                     break;
             }
         }
+        private object[] IniLockers(int count)
+        {
+            object[] ans = new object[count];
+            for (int i=0;i<count;i++)
+            {
+                ans[i] = new object();
+            }
+            return ans;
+        }
         //запуск таймеров на все порты + таймер на архивацию старых логов
         public void RunTimer(List<Comand_COM> list1,
                               List<Comand_COM> list2,
@@ -746,6 +843,8 @@ namespace State_Machine_FWR
                               Timers_settings settings,
                               COMs_settings com_settings, MAX_MIN_data_for_modules m_t_m)
         {
+            //инициируем локры для потоков
+            _lockers = IniLockers(8);
             max_min_tar_data = m_t_m;
             if (list1 != null && settings.COM1_timer.period != 0)
             {
@@ -763,10 +862,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_1.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_1.Name);
-                    //_context.
-                    //_context.
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_1.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_1.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_1.Name);
                 }
             }
             if (list2 != null && settings.COM2_timer.period != 0)
@@ -785,8 +883,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_2.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_2.Name);
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_2.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_2.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_2.Name);
                 }
             }
             if (list3 != null && settings.COM3_timer.period != 0)
@@ -805,8 +904,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_3.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_3.Name);
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_3.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_3.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_3.Name);
                 }
             }
             if (list4 != null && settings.COM4_timer.period != 0)
@@ -825,8 +925,9 @@ namespace State_Machine_FWR
                 }
                 catch (Exception ex)
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_4.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_4.Name+"\n Error = "+ex.ToString());
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_4.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_4.Name+"\n Error = "+ex.ToString());
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_4.Name);
                 }
             }
             if (list5 != null && settings.COM5_timer.period != 0)
@@ -845,8 +946,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_5.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_5.Name);
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_5.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_5.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_5.Name);
                 }
             }
             if (list6 != null && settings.COM6_timer.period != 0)
@@ -865,8 +967,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_6.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_6.Name);
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_6.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_6.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_6.Name);
                 }
             }
             if (list7 != null && settings.COM7_timer.period != 0)
@@ -885,8 +988,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_7.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_7.Name);
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_7.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_7.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_7.Name);
                 }
             }
             if (list8 != null && settings.COM8_timer.period != 0)
@@ -905,8 +1009,9 @@ namespace State_Machine_FWR
                 }
                 catch
                 {
-                    Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_8.Name);
-                    Log_.Debug(name + " no COMPORT" + com_settings.COM_port_8.Name);
+                    //Log_message?.Invoke(name + " no COMPORT" + com_settings.COM_port_8.Name);
+                    //Log_.Debug(name + " no COMPORT" + com_settings.COM_port_8.Name);
+                    Logging(true, true, "Debug", false, name + " no COMPORT" + com_settings.COM_port_8.Name);
                 }
             }
             //запуск таймера на архивацию старых логов
@@ -978,39 +1083,121 @@ namespace State_Machine_FWR
                 catch (Exception ex)
                 {
                     //Log_message?.Invoke("exeption ZIPping logs \nfile = " + str + "\n" + ex.Message.ToString() + "\n" + ex.ToString());
-                    Log_.Error("exeption ZIPping logs \nfile = " + str + "\n" + ex.ToString());
+                    //Log_.Error("exeption ZIPping logs \nfile = " + str + "\n" + ex.ToString());
+                    Logging(false, true, "Debug", false, "exeption ZIPping logs \nfile = " + str + "\n" + ex.ToString());
                 }
                 GC.Collect();
             }
             files_z = null;
+        }
+        /// <summary>
+        /// добавляем в каждую очередь сообщение
+        /// </summary>
+        /// <param name="new_item"></param>
+        private void AddInQueue(string new_item)
+        {
+            //взять каждую очередь
+            //запихнуть в каждую очередь
+            foreach(ConcurrentQueue<string> q in _context.q_master.queues)
+            {
+                q.Enqueue(new_item);
+            }
+
+            /*
+            //Logging(true, false, "Debug", false, "QUEUE"+_context.q_master.queues[q_num].Count.ToString());
+            if (_context.q_master.queues[q_num].Count>=10)
+            {
+                for (int i = 10; i<=_context.q_master.queues[q_num].Count; i++)
+                {
+                    if (_context.q_master.queues[q_num].TryDequeue(out _))
+                    {
+                        //Logging(true, false, "Debug", false, "DEQUEUE done");
+                    }
+                }
+            }
+            _context.q_master.queues[q_num].Enqueue(new_item);*/
+        }
+        /// <summary>
+        /// раскидать в разные логи, _IsGUILog - вывод в GUI демона, _IsNLog - лог в файл и в loki(TODO), _IsClientMessage - Gui клиентов
+        /// </summary>
+        /// <param name="_IsGUILog"></param>
+        /// <param name="_IsNLog"></param>
+        /// <param name="_NLogLevel"></param>
+        /// <param name="_IsClientMessage"></param>
+        /// <param name="_message"></param>
+        public void Logging(bool _IsGUILog, bool _IsNLog, string _NLogLevel, bool _IsClientMessage, string _message)
+        {
+            if (_IsNLog)
+            {
+                //раскидать на Debug/Warn,Error,Fatal
+                switch (_NLogLevel)
+                {
+                    case "Debug":
+                        Log_.Debug(_message);
+                        break;
+                    case "Error":
+                        Log_.Error(_message);
+                        break;
+                    case "Warn":
+                        Log_.Warn(_message);
+                        break;
+                    case "Fatal":
+                        Log_.Fatal(_message);
+                        break;
+                    case "Trace":
+                        Log_.Trace(_message);
+                        break;
+                    case "Info":
+                        Log_.Info(_message);
+                        break;
+                    default:
+                        Log_.Debug(_message);
+                        break;
+                }                    
+            }
+            if (_IsGUILog)
+            {
+                Log_message?.Invoke(_message);
+            }
+            if (_context!=null && _IsClientMessage)
+            {
+                //запихиваем в очередь сообщений для всех клиентов
+                //_context.messages.Enqueue(_message);
+                AddInQueue(_message);
+            }                        
         }
         //тик для таймера 1
         private void Tick_com1(object state)
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[0]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop1, 0);
-                    if (first_loop1) first_loop1 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop1, 0);
+                        if (first_loop1) first_loop1 = false;
+                    }
+                    else
+                    {
+                        //шлем событие, что можно убивать
+                        event_1.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //шлем событие, что можно убивать
-                    event_1.Set();
+                    //Log_message?.Invoke("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 1\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 1 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[0]);
+                }
             }
         }
         //тик для таймера 2
@@ -1018,28 +1205,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[1]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop2, 1);
-                    if (first_loop2) first_loop2 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop2, 1);
+                        if (first_loop2) first_loop2 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_2.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_2.Set();
+                    //Log_message?.Invoke("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 2\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 2 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[1]);
+                }
             }
         }
         //тик для таймера 3
@@ -1047,28 +1239,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[2]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop3, 2);
-                    if (first_loop3) first_loop3 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop3, 2);
+                        if (first_loop3) first_loop3 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_3.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_3.Set();
+                    //Log_message?.Invoke("exeption timer 3" + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 3 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 3\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 3" + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 3 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[2]);
+                }
             }
         }
         //тик для таймера 4
@@ -1076,28 +1273,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[3]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop4, 3);
-                    if (first_loop4) first_loop4 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop4, 3);
+                        if (first_loop4) first_loop4 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_4.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_4.Set();
+                    //Log_message?.Invoke("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 4\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 4 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[3]);
+                }
             }
         }
         /// <summary>
@@ -1119,31 +1321,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[4]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    //Log_message?.Invoke("tick timer 5");
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop5, 4);
-                    if (first_loop5) first_loop5 = false;
-                    //string str = Str_get_from_dict();
-                    //Log_.Trace(Str_get_from_dict(Push_target_list));
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop5, 4);
+                        if (first_loop5) first_loop5 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_5.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_5.Set();
+                    //Log_message?.Invoke("exeption timer 5 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 5 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 5\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 5 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 5 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[4]);
+                }
             }
         }
         //тик для таймера 6
@@ -1151,28 +1355,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[5]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop6, 5);
-                    if (first_loop6) first_loop6 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop6, 5);
+                        if (first_loop6) first_loop6 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_6.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_6.Set();
+                    //Log_message?.Invoke("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 6\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 6 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[5]);
+                }
             }
         }
         //тик для таймера 7
@@ -1180,28 +1389,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[6]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop7, 6);
-                    if (first_loop7) first_loop7 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop7, 6);
+                        if (first_loop7) first_loop7 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_7.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_7.Set();
+                    //Log_message?.Invoke("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 7\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 7 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[6]);
+                }
             }
         }
         //тик для таймера 8
@@ -1209,28 +1423,33 @@ namespace State_Machine_FWR
         {
             //проверка нужно ли останавливать таймер
             //берем из обджект список комманд
-            try
+            if (Monitor.TryEnter(_lockers[7]))
             {
-                if (!need_kill_all)
+                try
                 {
-                    Data_for_COM_thread data = (Data_for_COM_thread)state;
-                    COM_ask(data.port, data.list, first_loop8, 7);
-                    if (first_loop8) first_loop8 = false;
+                    if (!need_kill_all)
+                    {
+                        Data_for_COM_thread data = (Data_for_COM_thread)state;
+                        COM_ask(data.port, data.list, first_loop8, 7);
+                        if (first_loop8) first_loop8 = false;
+                    }
+                    else
+                    {
+                        //убиваем
+                        event_8.Set();
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    //убиваем
-                    event_8.Set();
+                    //Log_message?.Invoke("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    //Log_.Error("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
+                    Logging(true, true, "Error", true, "exeption timer 8\n" + ex.ToString());
                 }
-            }
-            catch (Exception ex)
-            {
-                Log_message?.Invoke("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
-                Log_.Error("exeption timer 8 " + ex.Message.ToString() + "\n" + ex.ToString());
-            }
-            finally
-            {
-                //Log_message?.Invoke("block finally");
+                finally
+                {
+                    //Log_message?.Invoke("block finally");
+                    Monitor.Exit(_lockers[7]);
+                }
             }
         }
         /// <summary>
@@ -1282,13 +1501,15 @@ namespace State_Machine_FWR
                 ans = -999
             };
             //Log_message?.Invoke(name + " send" + port.PortName + ": " + comand.read_data_COM);
-            Log_.Debug(name + " send" + port.PortName + ": " + comand.read_data_COM);
+            //Log_.Debug(name + " send" + port.PortName + ": " + comand.read_data_COM);
+            Logging(false, true, "Debug", false, name + " send" + port.PortName + ": " + comand.read_data_COM);
             var a_com_ans = Send_command_to_COM_async(comand.read_data_COM, port, comand.is_complex_parse);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
                 //Log_message?.Invoke(name + " recv" + port.PortName + ": " + com_ans);
-                Log_.Debug(name + " recv" + port.PortName + ": " + com_ans);
+                //Log_.Debug(name + " recv" + port.PortName + ": " + com_ans);
+                Logging(false, true, "Debug", false, name + " recv" + port.PortName + ": " + com_ans);
                 if (com_ans != "timeout" && com_ans != "port closed" && com_ans != "")
                 {
                     //если получен ответ -парсим данные по ИД команды + пишем в стайт                    
@@ -1346,8 +1567,9 @@ namespace State_Machine_FWR
                             //если нет ошибки
                             if (out_dat.need_break)
                             {
-                                Log_message?.Invoke(port.PortName + " critical error, " + out_dat.message);
-                                Log_.Error(port.PortName + " critical error, " + out_dat.message);
+                                //Log_message?.Invoke(port.PortName + " critical error, " + out_dat.message);
+                                //Log_.Error(port.PortName + " critical error, " + out_dat.message);
+                                Logging(true, true, "Error", true, port.PortName + " critical error, " + out_dat.message);
                                 Error_deal(true, num_loop);
                                 finished_previous[num_loop] = true;
                                 break;
@@ -1369,8 +1591,9 @@ namespace State_Machine_FWR
                                 }
                                 else
                                 {
-                                    Log_message?.Invoke(port.PortName + " error, " + out_dat.message);
-                                    Log_.Error(port.PortName + " error, " + out_dat.message);
+                                    //Log_message?.Invoke(port.PortName + " error, " + out_dat.message);
+                                    //Log_.Error(port.PortName + " error, " + out_dat.message);
+                                    Logging(true, true, "Debug", true, port.PortName + " error, " + out_dat.message);
                                     Error_deal(false, num_loop);
                                     finished_previous[num_loop] = true;
                                     break;
@@ -1567,10 +1790,11 @@ namespace State_Machine_FWR
                 string hours = arr[3];
                 hours = hours.Replace('.', ',');
                 string inf = arr[5];
-                Log_.Debug("name = " + Cryo_name);
-                Log_.Debug("on_off = " + on_off);
-                Log_.Debug("hours = " + hours);
-                Log_.Debug("inf = " + inf);
+                //Log_.Debug("name = " + Cryo_name);
+                //Log_.Debug("on_off = " + on_off);
+                //Log_.Debug("hours = " + hours);
+                //Log_.Debug("inf = " + inf);
+                Logging(false, true, "Debug", false, "inf = " + inf);
                 if (on_off == "OFF")
                 {
                     Write_to_StateInfo(0, 137);
@@ -1920,7 +2144,7 @@ namespace State_Machine_FWR
                     int dat_len = int.Parse(ans.Substring(8, 2));
                     aaa.ans = float.Parse(ans.Substring(10, dat_len));
                     //Log_message?.Invoke("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
-                    Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
+                    //Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
                     Write_to_StateInfo(aaa.ans, id);
                     //проврека на МАКС/МИН
                     if (aaa.ans<max_min_tar_data.MIN_data_slice[id] || aaa.ans>max_min_tar_data.MAX_data_slice[id])
@@ -2005,7 +2229,6 @@ namespace State_Machine_FWR
                     //ошибка
                     //Log_message?.Invoke(name + " FUG no answer for set control command");
                     //Error_deal(true, portname);
-                    //C_handle();
                     aaa.message = name + " FUG no answer for set control command";
                     aaa.need_error_procces = true;
                 }
@@ -2025,7 +2248,6 @@ namespace State_Machine_FWR
             COM_data_Out aaa = new COM_data_Out { };
             try
             {
-                //Log_message?.Invoke("current = " + ans.Substring(6, ans.Length - 6));
                 if (ans.Length > 6)
                 {
                     aaa.ans = float.Parse(ans.Substring(3, ans.Length - 3).Replace('.', ','));
@@ -2033,15 +2255,12 @@ namespace State_Machine_FWR
                 }
                 else
                 {
-                    //Error_deal(false, portname);
                     aaa.message = name + " some problem FUG current";
                     aaa.need_error_procces = true;
                 }
             }
             catch (Exception ex)
             {
-                //Log_message?.Invoke(name + " parsing problem FUG current"+ ex.ToString());
-                //Error_deal(false, portname);
                 aaa.message = name + " parsing problem FUG current" + ex.ToString();
                 aaa.need_error_procces = true;
             }
@@ -2055,22 +2274,17 @@ namespace State_Machine_FWR
             {
                 if (ans.Length > 6)
                 {
-                    //Log_message?.Invoke("voltage = " + ans.Substring(6, ans.Length - 6));
                     aaa.ans = float.Parse(ans.Substring(3, ans.Length - 3).Replace('.', ','));
                     Write_to_StateInfo(aaa.ans, id);
                 }
                 else
                 {
-                    //Log_message?.Invoke(name + " some problem FUG voltage");
-                    //Error_deal(false, portname);
                     aaa.message = name + " some problem FUG voltage";
                     aaa.need_error_procces = true;
                 }
             }
             catch (Exception ex)
             {
-                //Log_message?.Invoke(name + " parsing problem FUG voltage" + ex.ToString());
-                //Error_deal(false, portname);
                 aaa.message = name + " some problem FUG voltage" + ex.ToString();
                 aaa.need_error_procces = true;
             }
@@ -2213,7 +2427,8 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                         }
-                        Log_.Debug("try switch LL Pfeiffer (40) can ch = " + ans.ToString() + ".");
+                        //Log_.Debug("try switch LL Pfeiffer (40) can ch = " + ans.ToString() + ".");
+                        Logging(false, true, "Debug", false, "try switch LL Pfeiffer (40) can ch = " + ans.ToString() + ".");
                         break;
                     case 74:
                         //вкл/выкл ТМН на анализационном
@@ -2339,7 +2554,8 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                         }                        
-                        Log_.Debug("try switch AC Pfeiffer (74) can ch = " + ans.ToString() + ".");
+                        //Log_.Debug("try switch AC Pfeiffer (74) can ch = " + ans.ToString() + ".");
+                        Logging(false, true, "Debug", false, "try switch AC Pfeiffer (74) can ch = " + ans.ToString() + ".");
                         break;
                     case 28:
                         //вкл/выкл форвакуумный насос на LL
@@ -2392,7 +2608,8 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                         }
-                        Log_.Debug("try switch LL forevac (28) can ch = " + ans.ToString() + ".");
+                        //Log_.Debug("try switch LL forevac (28) can ch = " + ans.ToString() + ".");
+                        Logging(false, true, "Debug", false, "try switch LL forevac (28) can ch = " + ans.ToString() + ".");
                         break;
                     case 29:
                         //выключать форвакуумныей насос на AC
@@ -2445,7 +2662,8 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                         }
-                        Log_.Debug("try switch AC forevac (29) can ch = " + ans.ToString() + ".");
+                        //Log_.Debug("try switch AC forevac (29) can ch = " + ans.ToString() + ".");
+                        Logging(false, true, "Debug", false, "try switch AC forevac (29) can ch = " + ans.ToString() + ".");
                         break;
                     case 25:
                         //шибер
@@ -2474,7 +2692,8 @@ namespace State_Machine_FWR
                         {
                             ans = true;
                         }
-                        Log_.Debug("try switch GateValve (25) can ch = " + ans.ToString() + ".");
+                        //Log_.Debug("try switch GateValve (25) can ch = " + ans.ToString() + ".");
+                        Logging(false, true, "Debug", false, "try switch GateValve (25) can ch = " + ans.ToString() + ".");
                         break;
                     case 23:
                         //клапан LL
@@ -2639,7 +2858,8 @@ namespace State_Machine_FWR
             }
             catch(Exception ex)
             {
-                Log_.Error("Some error in block Can_change " + id_comand.ToString() + "\n" + ex.ToString());
+                //Log_.Error("Some error in block Can_change " + id_comand.ToString() + "\n" + ex.ToString());
+                Logging(true, true, "Error", true, "Some error in block Can_change " + id_comand.ToString() + "\n" + ex.ToString());
             }
 
             return ans;
@@ -2771,7 +2991,8 @@ namespace State_Machine_FWR
                 ans = old_val + max_min_tar_data.Step_plus[id];
                 //проверка на выход за диапазон
                 if (ans > max_min_tar_data.MAX_data_slice[id]) ans = max_min_tar_data.MAX_data_slice[id];
-                Log_.Debug("param " + id.ToString() + " MIN limit exceeded");
+                //Log_.Debug("param " + id.ToString() + " MIN limit exceeded");
+                Logging(false, true, "Debug", true, "param " + id.ToString() + " MIN limit exceeded");
             }
             else
             {
@@ -2781,7 +3002,8 @@ namespace State_Machine_FWR
                     ans = old_val - max_min_tar_data.Step_minus[id];
                     //проверка на выход за диапазон
                     if (ans < max_min_tar_data.MIN_data_slice[id]) ans = max_min_tar_data.MIN_data_slice[id];
-                    Log_.Debug("param " + id.ToString() + " MAX limit exceeded");
+                    //Log_.Debug("param " + id.ToString() + " MAX limit exceeded");
+                    Logging(false, true, "Debug", true, "param " + id.ToString() + " MAX limit exceeded");
                 }
                 else
                 {
@@ -2839,18 +3061,20 @@ namespace State_Machine_FWR
                 {
                     //делаем шаг вперед
                     COM_write(com, port, new_val);
-                    Log_.Debug("yes we change param "+com.id.ToString() + " to "+ new_val.ToString()+"-"+"\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
-                    Log_message?.Invoke("yes we change param " + com.id.ToString() + " to " + new_val.ToString() + "-" + "\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
+                    //Log_.Debug("yes we change param "+com.id.ToString() + " to "+ new_val.ToString()+"-"+"\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
+                    Logging(true, true, "Debug", false, "yes we change param " + com.id.ToString() + " to " + new_val.ToString() + "-" + "\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
+                    //Log_message?.Invoke("yes we change param " + com.id.ToString() + " to " + new_val.ToString() + "-" + "\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
                 }
                 else
                 {
-                    Log_.Debug("param " + com.id.ToString() + " change not allowed\nnew val = "+new_val.ToString()+"\nold val = "+ans.ToString());
-                    //Log_message?.Invoke("param " + com.id.ToString() + " change not allowed\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
+                    //Log_.Debug("param " + com.id.ToString() + " change not allowed\nnew val = "+new_val.ToString()+"\nold val = "+ans.ToString());
+                    Logging(false, true, "Debug", false, "param " + com.id.ToString() + " change not allowed\nnew val = " + new_val.ToString() + "\nold val = " + ans.ToString());
                 }
             }
             catch (Exception ex)
             {
-                Log_.Error("Some error in block Check_and_write "+com.id.ToString()+"\n"+ ex.ToString());
+                //Log_.Error("Some error in block Check_and_write "+com.id.ToString()+"\n"+ ex.ToString());
+                Logging(false, true, "Error", true, "Some error in block Check_and_write " + com.id.ToString() + "\n" + ex.ToString());
             }
         }
         //проверка ответа ИБП
@@ -2927,7 +3151,8 @@ namespace State_Machine_FWR
                 if (com_ans.Length > 10)
                 {
                     //TODO заглушка - удаление пробелов
-                    com_ans = com_ans.Trim();
+                    //com_ans = com_ans.Trim();
+                    //пробуем добавить ноль в начале или удалить символ в начале
                     if (com_ans.Substring(3, 1) != "7")
                     {
                         int data_len = int.Parse(com_ans.Substring(7, 1));
@@ -3012,7 +3237,6 @@ namespace State_Machine_FWR
                             aaa.need_break = true;
                         }
                     }
-                    //}
                 }
             }
             catch (Exception exx)
@@ -3140,8 +3364,9 @@ namespace State_Machine_FWR
             }
             catch (Exception ex)
             {
-                Log_message?.Invoke(name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
-                Log_.Error(name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
+                //Log_message?.Invoke(name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
+                //Log_.Error(name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
+                Logging(true, true, "Error", true, name + " - Write_to_StateInfo error " + comID.ToString() + "\n Exception = " + ex.ToString());
             }
             return res;
         }
@@ -3187,7 +3412,7 @@ namespace State_Machine_FWR
             return bytes;
         }
         /// <summary>
-        /// посылка команды СОМ и получение ответа с использованием await TASK
+        /// посылка команды СОМ и получение ответа с использованием await readTASK
         /// </summary>
         /// <param name="comand"></param>
         /// <param name="port"></param>
@@ -3224,23 +3449,22 @@ namespace State_Machine_FWR
             //конструируем строку ответа
             string cc = Command_construct(com, new_val.ToString());
             //шлем команду на запись
-            Log_.Debug(name + " send" + port.PortName + ": " + cc);
-            //Log_message?.Invoke(name + " send" + port.PortName + ": " + cc);
-            //string com_ans = Send_command_to_COM(cc, port, com.is_cr);
+            //Log_.Debug(name + " send" + port.PortName + ": " + cc);
+            Logging(false, true, "Debug", false, name + " send" + port.PortName + ": " + cc);
             var a_com_ans = Send_command_to_COM_async(cc, port, com.is_complex_parse);
             if (a_com_ans.Status != TaskStatus.Faulted)
             {
                 string com_ans = a_com_ans.Result;
-                Log_.Debug(name + " rcv" + port.PortName + ": " + com_ans);
-                //Log_message?.Invoke(name + " rcv" + port.PortName + ": " + com_ans);
+                //Log_.Debug(name + " recv" + port.PortName + ": " + com_ans);
+                Logging(false, true, "Debug", false, name + " recv" + port.PortName + ": " + com_ans);
                 //проверяем ответ на команду записи
                 //TODO
             }
             else
             {
-                //TODO обработка ошибки
-                //Log_message?.Invoke(name + " - readtask for write was Faulted " + port.PortName);
-                Log_.Error(name + " - readtask for write was Faulted " + port.PortName);
+                //TODO обработка ошибки                
+                //Log_.Error(name + " - readtask for write was Faulted " + port.PortName);
+                Logging(false, true, "Debug", true, name + " - readtask for write was Faulted " + port.PortName);
             }
         }
         /// <summary>
@@ -3357,7 +3581,13 @@ namespace State_Machine_FWR
 
             return ans;
         }
-        //убиваем один таймер
+        /// <summary>
+        /// убиваем один таймер
+        /// </summary>
+        /// <param name="timer"></param>
+        /// <param name="port"></param>
+        /// <param name="evnt"></param>
+        /// <returns></returns>
         private bool Kill_One_timer(System.Threading.Timer timer, SerialPort port, AutoResetEvent evnt)
         {
             if (timer != null)
@@ -3374,54 +3604,52 @@ namespace State_Machine_FWR
         public void Kill_all_timers()
         {
             if (Kill_One_timer(COM1_timer, _serialPort_1, event_1))
-            {
-                //Log_message?.Invoke(name + " timer 1 killed");
-                Log_.Debug(name + " timer 1 killed");
+            {                
+                //Log_.Debug(name + " timer 1 killed");
+                Logging(false, true, "Debug", false, name + " timer 1 killed");
             }
             if (Kill_One_timer(COM2_timer, _serialPort_2, event_2))
-            {
-                //Log_message?.Invoke(name + " timer 2 killed");
-                Log_.Error(name + " timer 2 killed");
+            {                
+                //Log_.Error(name + " timer 2 killed");
+                Logging(false, true, "Debug", false, name + " timer 2 killed");
             }
             if (Kill_One_timer(COM3_timer, _serialPort_3, event_3))
             {
-                //Log_message?.Invoke(name + " timer 3 killed");
-                Log_.Error(name + " timer 3 killed");
+                //Log_.Error(name + " timer 3 killed");
+                Logging(false, true, "Debug", false, name + " timer 3 killed");
             }
             if (Kill_One_timer(COM4_timer, _serialPort_4, event_4))
             {
-                //Log_message?.Invoke(name + " timer 4 killed");
-                Log_.Error(name + " timer 4 killed");
+                //Log_.Error(name + " timer 4 killed");
+                Logging(false, true, "Debug", false, name + " timer 4 killed");
             }
             if (Kill_One_timer(COM5_timer, _serialPort_5, event_5))
             {
-                //Log_message?.Invoke(name + " timer 5 killed");
-                Log_.Error(name + " timer 5 killed");
+                //Log_.Error(name + " timer 5 killed");
+                Logging(false, true, "Debug", false, name + " timer 5 killed");
             }
             if (Kill_One_timer(COM6_timer, _serialPort_6, event_6))
             {
-                //Log_message?.Invoke(name + " timer 6 killed");
-                Log_.Error(name + " timer 6 killed");
+                //Log_.Error(name + " timer 6 killed");
+                Logging(false, true, "Debug", false, name + " timer 6 killed");
             }
             if (Kill_One_timer(COM7_timer, _serialPort_7, event_7))
             {
-                //Log_message?.Invoke(name + " timer 7 killed");
-                Log_.Error(name + " timer 7 killed");
+                //Log_.Error(name + " timer 7 killed");
+                Logging(false, true, "Debug", false, name + " timer 7 killed");
             }
             if (Kill_One_timer(COM8_timer, _serialPort_8, event_8))
             {
-                //Log_message?.Invoke(name + " timer 8 killed");
-                Log_.Error(name + " timer 8 killed");
+                //Log_.Error(name + " timer 8 killed");
+                Logging(false, true, "Debug", false, name + " timer 8 killed");
             }
-            //останавливаем TCP
-            //if (TCP_timer!=null)
-            //{
-            //event_TCP.WaitOne();
-            //TCP_timer.Dispose();
-            //}
             GC.Collect();
         }
-        //разбираемся с ошибками
+        /// <summary>
+        /// разбираемся с ошибками
+        /// </summary>
+        /// <param name="is_critical"></param>
+        /// <param name="portnum"></param>
         private void Error_deal(bool is_critical, int portnum)
         {
             //если критическая ошибка
@@ -3434,15 +3662,17 @@ namespace State_Machine_FWR
                 //error-count= false если не было ошибок
                 if (error_count[portnum])
                 {
-                    Log_message?.Invoke("second error in port" + portnum.ToString());
-                    Log_.Error("second error in port" + portnum.ToString());
+                    //Log_message?.Invoke("second error in port" + portnum.ToString());
+                    //Log_.Error("second error in port" + portnum.ToString());
+                    Logging(true, true, "Error", true, "second error in port " + portnum.ToString());
                     //error_count[portnum] = false;
                     Er_handle();
                 }
                 else
                 {
-                    Log_message?.Invoke("first error - wait next, port = " + portnum.ToString());
-                    Log_.Error("first error - wait next, port = " + portnum.ToString());
+                    //Log_message?.Invoke("first error - wait next, port = " + portnum.ToString());
+                    //Log_.Error("first error - wait next, port = " + portnum.ToString());
+                    Logging(true, true, "Error", true, "first error - wait next, port = " + portnum.ToString());
                     error_count[portnum] = true;
                     //skip_flag[portnum] = true;
                 }
@@ -3462,20 +3692,21 @@ namespace State_Machine_FWR
             {
                 if (StateInfo.ContainsKey(targ.Key) && max_min_tar_data.Step_minus.ContainsKey(targ.Key) && max_min_tar_data.Step_plus.ContainsKey(targ.Key))
                 {
-                    //Log_message?.Invoke("stateinf="+StateInfo[kv.Key].ToString());
-                    //Log_message?.Invoke("target  =" + kv.Value);
                     //если зн больше таргета, то сравниваем с шагом-
                     if (StateInfo[targ.Key] > targ.Value)
                     {
                         decimal diff = Convert.ToDecimal(StateInfo[targ.Key]) - Convert.ToDecimal(targ.Value);
-                        //if (StateInfo[targ.Key] - targ.Value >= max_min_tar_data.Step_minus[targ.Key])
                         if (diff >= Convert.ToDecimal(max_min_tar_data.Step_minus[targ.Key]))
                         {
                             ans = false;
-                            Log_.Debug("Key " + targ.Key.ToString() + " not riched target step_minus\ntarget = " +
+                            /*Log_.Debug("Key " + targ.Key.ToString() + " not riched target step_minus\ntarget = " +
                                 targ.Value.ToString() + "\nnow = " + 
                                 StateInfo[targ.Key].ToString() +
-                                "\nstep_minus = "+max_min_tar_data.Step_minus[targ.Key].ToString());
+                                "\nstep_minus = "+max_min_tar_data.Step_minus[targ.Key].ToString());*/
+                            Logging(false, true, "Debug", true, "Key " + targ.Key.ToString() + " not riched target step_minus\ntarget = " +
+                                targ.Value.ToString() + "\nnow = " +
+                                StateInfo[targ.Key].ToString() +
+                                "\nstep_minus = " + max_min_tar_data.Step_minus[targ.Key].ToString());
                         }
                     }
                     //если зн меньше таргета, то сравниваем с шагом+
@@ -3485,8 +3716,12 @@ namespace State_Machine_FWR
                         if (diff >= Convert.ToDecimal(max_min_tar_data.Step_plus[targ.Key]))
                         {
                             ans = false;
-                            Log_.Debug("Key " + targ.Key.ToString() + " not riched target step_plus\ntarget = " +
+                            /*Log_.Debug("Key " + targ.Key.ToString() + " not riched target step_plus\ntarget = " +
                                 targ.Value.ToString() + "\nnow = " + 
+                                StateInfo[targ.Key].ToString() +
+                                "\nstep_plus = " + max_min_tar_data.Step_plus[targ.Key].ToString());*/
+                            Logging(false, true, "Debug", true, "Key " + targ.Key.ToString() + " not riched target step_plus\ntarget = " +
+                                targ.Value.ToString() + "\nnow = " +
                                 StateInfo[targ.Key].ToString() +
                                 "\nstep_plus = " + max_min_tar_data.Step_plus[targ.Key].ToString());
                         }
@@ -3494,8 +3729,8 @@ namespace State_Machine_FWR
                 }
                 else
                 {
-                    //Log_message?.Invoke("no some keys = " + kv.Key.ToString());
-                    Log_.Error("no some keys = " + targ.Key.ToString());
+                    //Log_.Error("no some keys = " + targ.Key.ToString());
+                    Logging(false, true, "Error", true, "no some keys = " + targ.Key.ToString());
                     ans = false;
                 }
             }
@@ -3536,8 +3771,9 @@ namespace State_Machine_FWR
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "SS";
-            Log_mes?.Invoke("State " + this.name + " was created");
-            Log_.Debug("State " + this.name + " was created");
+            //Log_mes?.Invoke("State " + this.name + " was created");
+            //Log_.Debug("State " + this.name + " was created");
+            Logging(true, true, "Debug", false, "State " + this.name + " was created");
             this.MAXMIN_version = SS_st_data.MAX_MIN_version;
             //this.IP_adress = State_Machine._Data.IP_adress_port;
             need_kill_all = false;
@@ -3564,18 +3800,18 @@ namespace State_Machine_FWR
                      SS_st_data.timers_set,
                      SS_st_data.com_settings,
                      SS_st_data.max_min_target);
-            //Log_mes?.Invoke("State "+this.name +" was created");
-            //Log_mes?.Invoke(this.name);
         }
         public override void SS_handle()
         {
-            Log_mes?.Invoke("SS - do nothing");
-            Log_.Debug("SS - do nothing");
+            //Log_mes?.Invoke("SS - do nothing");
+            //Log_.Debug("SS - do nothing");
+            Logging(true, true, "Debug", true, "SS - do nothing");
         }
         public override void PHLL_handle()
         {
-            Log_mes?.Invoke("PHLL - forbidden - do nothing");
-            Log_.Debug("PHLL - forbidden - do nothing");
+            //Log_mes?.Invoke("PHLL - forbidden - do nothing");
+            //Log_.Debug("PHLL - forbidden - do nothing");
+            Logging(true, true, "Debug", true, "PHLL - forbidden - do nothing");
         }
         public override void PLLL_handle()
         {
@@ -3584,17 +3820,18 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke("SS  - Go to PLLL");
-                Log_.Debug("SS  - Go to PLLL");
-                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke("SS  - Go to PLLL");
+                //Log_.Debug("SS  - Go to PLLL");
+                Logging(true, true, "Debug", true, "SS  - Go to PLLL");
                 _context._Data.st_PLLL = _context.Got_target_list_default("PLLL", _context.settings_path);
                 _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
                 GC.Collect();
             }
             else
             {
-                Log_mes?.Invoke("SS  - not all targets reached");
-                Log_.Debug("SS  - not all targets reached");
+                //Log_mes?.Invoke("SS  - not all targets reached");
+                //Log_.Debug("SS  - not all targets reached");
+                Logging(true, true, "Debug", true, "SS  - not all targets reached");
             }
         }
         public override void Er_handle()
@@ -3602,9 +3839,9 @@ namespace State_Machine_FWR
             //без проверки на достижение целевых параметров
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke("SS  - Go to Er");
-            Log_.Debug("SS  - Go to Er");
-            //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke("SS  - Go to Er");
+            //Log_.Debug("SS  - Go to Er");
+            Logging(true, true, "Debug", true, "SS  - Go to Er");
             _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
@@ -3614,24 +3851,27 @@ namespace State_Machine_FWR
             //без проверки на достижение целевых параметров
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke("SS  - Go to Em");
-            Log_.Debug("SS  - Go to Em");
-            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke("SS  - Go to Em");
+            //Log_.Debug("SS  - Go to Em");
+            Logging(true, true, "Debug", true, "SS  - Go to Em");
             _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
         public override void ALL_handle()
         {
-            Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+            //Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Open Load Lock fobidden - do nothing");
         }
         public override void AN_handle()
         {
-            Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+            //Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Analysis fobidden - do nothing");
         }
         public override void HVSB_handle()
         {
-            Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+            //Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - High vaccum Stand By fobidden - do nothing");
         }
     }
     public class Er_state : State
@@ -3647,8 +3887,9 @@ namespace State_Machine_FWR
             Log_mes = Logger;
             //Log_message("");
             this.name = "Er";
-            Log_mes?.Invoke("State " + this.name + " was created");
-            Log_.Debug("State " + this.name + " was created");
+            //Log_mes?.Invoke("State " + this.name + " was created");
+            //Log_.Debug("State " + this.name + " was created");
+            Logging(false, true, "Debug", true, "State " + this.name + " was created");
             this.MAXMIN_version = Er_st_data.MAX_MIN_version;
             need_kill_all = false;
             //грузим списки комманд для разных СОМов
@@ -3679,51 +3920,56 @@ namespace State_Machine_FWR
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke("Er  - Go to SS");
-            Log_.Debug("Er  - Go to SS");
-            //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke("Er  - Go to SS");
+            //Log_.Debug("Er  - Go to SS");
+            Logging(true, true, "Debug", true, "Er  - Go to SS");
             _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
-            //Log_.Trace(_context._Data.st_SS.max_min_target.TAR_data_slice[16].ToString());
             _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
             GC.Collect();
         }
         public override void Er_handle()
         {
-            Log_mes?.Invoke("Er - do nothing");
-            Log_.Debug("Er - do nothing");
+            //Log_mes?.Invoke("Er - do nothing");
+            //Log_.Debug("Er - do nothing");
+            Logging(true, true, "Debug", true, "Er - do nothing");
         }
         public override void PLLL_handle()
         {
-            Log_mes?.Invoke("Er - PLLL is forbidden - do nothing");
-            Log_.Debug("Er - PLLL is forbidden - do nothing");
+            //Log_mes?.Invoke("Er - PLLL is forbidden - do nothing");
+            //Log_.Debug("Er - PLLL is forbidden - do nothing");
+            Logging(true, true, "Debug", true, "Er - PLLL is forbidden - do nothing");
         }
         public override void Em_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke("Er  - Go to Em");
-            Log_.Debug("Er  - Go to Em");
-            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke("Er  - Go to Em");
+            //Log_.Debug("Er  - Go to Em");
+            Logging(true, true, "Debug", true, "Er  - Go to Em");
             _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
         public override void PHLL_handle()
         {
-            Log_mes?.Invoke("Er - PHLL is forbidden - do nothing");
-            Log_.Debug("Er - PHLL is forbidden - do nothing");
+            //Log_mes?.Invoke("Er - PHLL is forbidden - do nothing");
+            //Log_.Debug("Er - PHLL is forbidden - do nothing");
+            Logging(true, true, "Debug", true, "Er - PHLL is forbidden - do nothing");
         }
         public override void ALL_handle()
         {
-            Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+            //Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - Open Load Lock fobidden - do nothing");
         }
         public override void AN_handle()
         {
-            Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+            //Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - Analysis fobidden - do nothing");
         }
         public override void HVSB_handle()
         {
-            Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+            //Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - High vaccum Stand By fobidden - do nothing");
         }
     }
         public class Em_state : State
@@ -3739,8 +3985,9 @@ namespace State_Machine_FWR
                 Log_mes = Logger;
                 //Log_message("");
                 this.name = "Em";
-                Log_mes?.Invoke("State " + this.name + " was created");
-                Log_.Debug("State " + this.name + " was created");
+                //Log_mes?.Invoke("State " + this.name + " was created");
+                //Log_.Debug("State " + this.name + " was created");
+                Logging(true, true, "Debug", false, "State " + this.name + " was created");
                 this.MAXMIN_version = Em_st_data.MAX_MIN_version;
                 need_kill_all = false;
                 //грузим списки комманд для разных СОМов
@@ -3772,44 +4019,51 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke("Em  - Go to SS");
-                Log_.Debug("Em  - Go to SS");
-                //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke("Em  - Go to SS");
+                //Log_.Debug("Em  - Go to SS");
+                Logging(true, true, "Debug", true, "Em  - Go to SS");
                 _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
                 _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
                 GC.Collect();
             }
             public override void Er_handle()
             {
-                Log_mes?.Invoke("Em - Er is forbidden - do nothing");
-                Log_.Debug("Em - Er is forbidden - do nothing");
+                //Log_mes?.Invoke("Em - Er is forbidden - do nothing");
+                Logging(true, true, "Debug", true, "Em - Er is forbidden - do nothing");
+                //Log_.Debug("Em - Er is forbidden - do nothing");
             }
             public override void PLLL_handle()
             {
-                Log_mes?.Invoke("Em - PLLL is forbidden - do nothing");
-                Log_.Debug("Em - PLLL is forbidden - do nothing");
+                //Log_mes?.Invoke("Em - PLLL is forbidden - do nothing");
+                //Log_.Debug("Em - PLLL is forbidden - do nothing");
+            Logging(true, true, "Debug", true, "Em - PLLL is forbidden - do nothing");
             }
             public override void Em_handle()
             {
-                Log_mes?.Invoke("Em - do nothing");
-                Log_.Debug("Em - do nothing");
+                //Log_mes?.Invoke("Em - do nothing");
+                //Log_.Debug("Em - do nothing");
+                Logging(true, true, "Debug", true, "Em - do nothing");
             }
             public override void PHLL_handle()
             {
-                Log_mes?.Invoke("Em - PHLL is forbidden - do nothing");
-                Log_.Debug("Em - PHLL is forbidden - do nothing");
+                //Log_mes?.Invoke("Em - PHLL is forbidden - do nothing");
+                //Log_.Debug("Em - PHLL is forbidden - do nothing");
+                Logging(true, true, "Debug", true, "Em - PHLL is forbidden - do nothing");
             }
             public override void ALL_handle()
             {
-                Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+                //Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+                Logging(true, true, "Debug", true, this.name + " - Open Load Lock fobidden - do nothing");
             }
             public override void AN_handle()
             {
-                Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+                //Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+                Logging(true, true, "Debug", true, this.name + " - Analysis fobidden - do nothing");
             }
             public override void HVSB_handle()
             {
-                Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+                //Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+                Logging(true, true, "Debug", true, this.name + " - High vaccum Stand By fobidden - do nothing");
             }
         }
         public class PLLL_state : State
@@ -3818,15 +4072,13 @@ namespace State_Machine_FWR
             public PLLL_state(Log_Handler Logger, State_data s_data)
             {
                 State_data PLLL_st_data = s_data;
-                //if (_context != null)
-                //PLLL_st_data = _context._Data.st_PLLL;
                 this.Log_message += Logger;
                 Log_mes = Logger;
                 this.name = "PLLL";
-                Log_mes?.Invoke("State " + this.name + " was created");
-                Log_.Debug("State " + this.name + " was created");
-                this.MAXMIN_version = PLLL_st_data.MAX_MIN_version;
-                //this.IP_adress = State_Machine._Data.IP_adress_port;
+                //Log_mes?.Invoke("State " + this.name + " was created");
+                //Log_.Debug("State " + this.name + " was created");
+            Logging(true, true, "Debug", false, "State " + this.name + " was created");
+            this.MAXMIN_version = PLLL_st_data.MAX_MIN_version;
                 need_kill_all = false;
                 //грузим списки комманд для разных СОМов
                 List<Comand_COM> comm_1_list = PLLL_st_data.list1;
@@ -3851,8 +4103,6 @@ namespace State_Machine_FWR
                          PLLL_st_data.timers_set,
                          PLLL_st_data.com_settings,
                          PLLL_st_data.max_min_target);
-                //Log_mes?.Invoke("State " + this.name + " was created");
-                //Log_mes?.Invoke(this.name);
             }
             public override void SS_handle()
             {
@@ -3860,21 +4110,18 @@ namespace State_Machine_FWR
                 {
                     need_kill_all = true;
                     Kill_all_timers();
-                    Log_mes?.Invoke("PLLL  - Go to SS");
-                    Log_.Debug("PLLL  - Go to SS");
-                    //Log_.Trace("old target slice");
-                    //Log_.Trace(Str_get_from_dict(_context._Data.st_SS.max_min_target.TAR_data_slice));
-                    //Log_.Trace("reserved target slice");
-                    //Log_.Trace(Str_get_from_dict(_context._reserved.st_SS.max_min_target.TAR_data_slice));
-                    //_context._Data.st_SS.max_min_target.TAR_data_slice = _context._reserved.st_SS.max_min_target.TAR_data_slice;
-                    _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
+                    //Log_mes?.Invoke("PLLL  - Go to SS");
+                    //Log_.Debug("PLLL  - Go to SS");
+                Logging(false, true, "Debug", true, "PLLL  - Go to SS");                
+                _context._Data.st_SS = _context.Got_target_list_default("SS", _context.settings_path);
                     _context.TransitionTo(new SS_state(new Log_Handler(Log_mes), _context._Data.st_SS));
                     GC.Collect();
                 }
                 else
                 {
-                    Log_.Debug(this.name + " not all targets reached");
-                }
+                    //Log_.Debug(this.name + " not all targets reached");
+                Logging(false, true, "Debug", true, this.name + " not all targets reached");
+            }
             }
             public override void PHLL_handle()
             {
@@ -3882,31 +4129,34 @@ namespace State_Machine_FWR
                 {
                     need_kill_all = true;
                     Kill_all_timers();
-                    Log_mes?.Invoke("PLLL  - Go to PHLL");
-                    Log_.Debug("PLLL  - Go to PHLL");
-                    _context._Data.st_PHLL = _context.Got_target_list_default("PHLL", _context.settings_path);
+                    //Log_mes?.Invoke("PLLL  - Go to PHLL");
+                    //Log_.Debug("PLLL  - Go to PHLL");
+                Logging(false, true, "Debug", true, "PLLL  - Go to PHLL");
+                _context._Data.st_PHLL = _context.Got_target_list_default("PHLL", _context.settings_path);
                     //_context._Data.st_PHLL.max_min_target.TAR_data_slice = _context._reserved.st_PHLL.max_min_target.TAR_data_slice;
                     _context.TransitionTo(new PHLL_state(new Log_Handler(Log_mes), _context._Data.st_PHLL));
                     GC.Collect();
                 }
                 else
                 {
-                    Log_.Debug(this.name + " not all targets reached");
-                }
+                    //Log_.Debug(this.name + " not all targets reached");
+                Logging(false, true, "Debug", true, this.name + " not all targets reached");
+            }
             }
             public override void PLLL_handle()
             {
-                Log_mes?.Invoke("PLLL - do nothing");
-                Log_.Debug("PLLL - do nothing");
-            }
+                //Log_mes?.Invoke("PLLL - do nothing");
+                //Log_.Debug("PLLL - do nothing");
+            Logging(true, true, "Debug", true, "PLLL - do nothing");
+        }
             public override void Er_handle()
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke("PLLL  - Go to Er");
-                Log_.Debug("PLLL  - Go to Er");
-                //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-                _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
+                //Log_mes?.Invoke("PLLL  - Go to Er");
+                //Log_.Debug("PLLL  - Go to Er");
+            Logging(true, true, "Debug", true, "PLLL  - Go to Er");
+            _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
                 _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
                 GC.Collect();
             }
@@ -3914,25 +4164,28 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke("PLLL  - Go to Em");
-                Log_.Debug("PLLL  - Go to Em");
-                //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-                _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
+                //Log_mes?.Invoke("PLLL  - Go to Em");
+                //Log_.Debug("PLLL  - Go to Em");
+            Logging(true, true, "Debug", true, "PLLL  - Go to Em");;
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
                 _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
                 GC.Collect();
             }
             public override void ALL_handle()
             {
-                Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
-            }
+                //Log_.Debug(this.name + " - Open Load Lock fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - Open Load Lock fobidden - do nothing");
+        }
             public override void AN_handle()
             {
-                Log_.Debug(this.name + " - Analysis fobidden - do nothing");
-            }
+                //Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - Analysis fobidden - do nothing");
+        }
             public override void HVSB_handle()
             {
-                Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
-            }
+                //Log_.Debug(this.name + " - High vaccum Stand By fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - High vaccum Stand By fobidden - do nothing");
+        }
         }
     public class PHLL_state : State
     {
@@ -3943,8 +4196,9 @@ namespace State_Machine_FWR
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "PHLL";
-            Log_mes?.Invoke("State " + this.name + " was created");
-            Log_.Debug("State " + this.name + " was created");
+            //Log_mes?.Invoke("State " + this.name + " was created");
+            //Log_.Debug("State " + this.name + " was created");
+            Logging(true, true, "Debug", false, "State " + this.name + " was created");
             this.MAXMIN_version = PHLL_st_data.MAX_MIN_version;        
             need_kill_all = false;
             //грузим списки комманд для разных СОМов
@@ -3972,25 +4226,28 @@ namespace State_Machine_FWR
         }
         public override void SS_handle()
         {
-            Log_mes?.Invoke("PHLL - SS is forbidden - do nothing");
-            Log_.Debug("PHLL - SS is forbidden - do nothing");
+            //Log_mes?.Invoke("PHLL - SS is forbidden - do nothing");
+            //Log_.Debug("PHLL - SS is forbidden - do nothing");
+            Logging(true, true, "Debug", true, "PHLL - SS is forbidden - do nothing");
         }
         public override void PHLL_handle()
         {
-            Log_mes?.Invoke("PHLL - do nothing");
-            Log_.Debug("PHLL - do nothing");
+            //Log_mes?.Invoke("PHLL - do nothing");
+            //Log_.Debug("PHLL - do nothing");
+            Logging(true, true, "Debug", true, "PHLL - do nothing");
         }
         public override void PLLL_handle()
         {
-           Log_.Debug("PHLL - PLLL is forbidden - do nothing");
+           //Log_.Debug("PHLL - PLLL is forbidden - do nothing");
+            Logging(true, true, "Debug", true, "PHLL - PLLL is forbidden - do nothing");
         }
         public override void Er_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke("PHLL  - Go to Er");
-            Log_.Debug("PHLL  - Go to Er");
-                //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke("PHLL  - Go to Er");
+            //Log_.Debug("PHLL  - Go to Er");
+            Logging(true, true, "Debug", true, "PHLL  - Go to Er");
             _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
@@ -3999,37 +4256,40 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke("PHLL  - Go to Em");
-                Log_.Debug("PHLL  - Go to Em");
-                //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-                _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
+                //Log_mes?.Invoke("PHLL  - Go to Em");
+                //Log_.Debug("PHLL  - Go to Em");
+            Logging(true, true, "Debug", true, "PHLL  - Go to Em");
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
                 _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
                 GC.Collect();
             }
             public override void ALL_handle()
             {
-                Log_.Debug(this.name + " - Open Load Lock fobibben - do nothing");
-            }
+                //Log_.Debug(this.name + " - Open Load Lock fobibben - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - Open Load Lock fobibben - do nothing");
+        }
             public override void AN_handle()
             {
-                Log_.Debug(this.name + " - Analysis fobidden - do nothing");
-            }
+                //Log_.Debug(this.name + " - Analysis fobidden - do nothing");
+            Logging(true, true, "Debug", true, this.name + " - Analysis fobidden - do nothing");
+        }
             public override void HVSB_handle()
             {
             if (Check_target_reached())
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to HVSB");
-                Log_.Debug(this.name + "  - Go to HVSB");
-                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke(this.name + "  - Go to HVSB");
+                //Log_.Debug(this.name + "  - Go to HVSB");
+                Logging(true, true, "Debug", true, this.name + "  - Go to HVSB");
                 _context._Data.st_HVSB = _context.Got_target_list_default("HVSB", _context.settings_path);
                 _context.TransitionTo(new HVSB_state(new Log_Handler(Log_mes), _context._Data.st_HVSB));
                 GC.Collect();
             }
             else
             {
-                Log_.Debug(this.name + " not all targets reached");
+                //Log_.Debug(this.name + " not all targets reached");
+                Logging(true, true, "Debug", true, this.name + " not all targets reached");
             }
         }
         }
@@ -4045,10 +4305,10 @@ namespace State_Machine_FWR
                 this.Log_message += Logger;
                 Log_mes = Logger;
                 this.name = "ALL";
-                Log_mes?.Invoke("State " + this.name + " was created");
-                Log_.Debug("State " + this.name + " was created");
-                this.MAXMIN_version = AL_data.MAX_MIN_version;
-                //this.IP_adress = State_Machine._Data.IP_adress_port;
+                //Log_mes?.Invoke("State " + this.name + " was created");
+                //Log_.Debug("State " + this.name + " was created");
+            Logging(false, true, "Debug", false, "State " + this.name + " was created");
+            this.MAXMIN_version = AL_data.MAX_MIN_version;
                 need_kill_all = false;
                 //грузим списки комманд для разных СОМов
                 List<Comand_COM> comm_1_list = AL_data.list1;
@@ -4073,45 +4333,46 @@ namespace State_Machine_FWR
                          AL_data.timers_set,
                          AL_data.com_settings,
                          AL_data.max_min_target);
-                //Log_mes?.Invoke("State " + this.name + " was created");
-                //Log_mes?.Invoke(this.name);
             }
             public override void SS_handle()
             {
-                Log_mes?.Invoke(this.name + " - SS is forbidden - do nothing");
-                Log_.Debug(this.name + " - SS is forbidden - do nothing");
-            }
+                //Log_mes?.Invoke(this.name + " - SS is forbidden - do nothing");
+                //Log_.Debug(this.name + " - SS is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - SS is forbidden - do nothing");
+        }
             public override void PHLL_handle()
             {
-                Log_mes?.Invoke(this.name + " - Pump High Vacuum is forbbiden - do nothing");
-                Log_.Debug(this.name + " - Pump High Vacuum is forbbiden - do nothing");
-            }
+                //Log_mes?.Invoke(this.name + " - Pump High Vacuum is forbbiden - do nothing");
+                //Log_.Debug(this.name + " - Pump High Vacuum is forbbiden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Pump High Vacuum is forbbiden - do nothing");
+        }
             public override void PLLL_handle()
             {
             if (Check_target_reached())
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to PLLL");
-                Log_.Debug(this.name + " - Go to PLLL");
-                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke(this.name + "  - Go to PLLL");
+                //Log_.Debug(this.name + " - Go to PLLL");
+                Logging(false, true, "Debug", true, this.name + " - Go to PLLL");
                 _context._Data.st_PLLL = _context.Got_target_list_default("PLLL", _context.settings_path);
                 _context.TransitionTo(new PLLL_state(new Log_Handler(Log_mes), _context._Data.st_PLLL));
                 GC.Collect();
             }
             else
             {
-                Log_.Debug(this.name + " not all targets reached");
+                //Log_.Debug(this.name + " not all targets reached");
+                Logging(false, true, "Debug", true, this.name + " not all targets reached");
             }
             }
             public override void Er_handle()
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to Er");
-                Log_.Debug(this.name + "  - Go to Er");
-                //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
-                _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
+                //Log_mes?.Invoke(this.name + "  - Go to Er");
+                //Log_.Debug(this.name + "  - Go to Er");
+            Logging(false, true, "Debug", true, this.name + "  - Go to Er");
+            _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
                 _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
                 GC.Collect();
             }
@@ -4119,26 +4380,29 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to Em");
-                Log_.Debug(this.name + "  - Go to Em");
-                //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
-                _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
+                //Log_mes?.Invoke(this.name + "  - Go to Em");
+                //Log_.Debug(this.name + "  - Go to Em");
+            Logging(false, true, "Debug", true, this.name + "  - Go to Em");
+            _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
                 _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
                 GC.Collect();
             }
             public override void ALL_handle()
             {
-                Log_mes?.Invoke(this.name + " - do nothing");
-                Log_.Debug(this.name + " - do nothing");
-            }
+                //Log_mes?.Invoke(this.name + " - do nothing");
+                //Log_.Debug(this.name + " - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - do nothing");
+        }
         public override void AN_handle()
         {
-            Log_.Debug(this.name + " - Analysis state is forbidden - do nothing");
+            //Log_.Debug(this.name + " - Analysis state is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Analysis state is forbidden - do nothing");
             //TODO потом будет разрешено(типа грузить во время исследования)
         }
         public override void HVSB_handle()
         {
-            Log_.Debug(this.name + " - High Vacuum StandBY is forbidden - do nothing");
+            //Log_.Debug(this.name + " - High Vacuum StandBY is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - High Vacuum StandBY is forbidden - do nothing");
         }
 
     }
@@ -4151,8 +4415,9 @@ namespace State_Machine_FWR
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "HVSB";
-            Log_mes?.Invoke("State " + this.name + " was created");
-            Log_.Debug("State " + this.name + " was created");
+            //Log_mes?.Invoke("State " + this.name + " was created");
+            //Log_.Debug("State " + this.name + " was created");
+            Logging(false, true, "Debug", false, "State " + this.name + " was created");
             this.MAXMIN_version = HVSB_st_data.MAX_MIN_version;
             need_kill_all = false;
             //грузим списки комманд для разных СОМов
@@ -4181,15 +4446,16 @@ namespace State_Machine_FWR
         }
         public override void HVSB_handle()
         {
-            Log_.Debug(this.name + " - do nothing");
+            //Log_.Debug(this.name + " - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - do nothing");
         }
         public override void Em_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke(this.name + "  - Go to Em");
-            Log_.Debug(this.name + "  - Go to Em");
-            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke(this.name + "  - Go to Em");
+            //Log_.Debug(this.name + "  - Go to Em");
+            Logging(false, true, "Debug", true, this.name + "  - Go to Em");
             _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
@@ -4198,9 +4464,9 @@ namespace State_Machine_FWR
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke(this.name + "  - Go to Er");
-            Log_.Debug(this.name + "  - Go to Er");
-            //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke(this.name + "  - Go to Er");
+            //Log_.Debug(this.name + "  - Go to Er");
+            Logging(false, true, "Debug", true, this.name + "  - Go to Er");
             _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
@@ -4211,16 +4477,17 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to ALL");
-                Log_.Debug(this.name + "  - Go to ALL");
-                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke(this.name + "  - Go to ALL");
+                //Log_.Debug(this.name + "  - Go to ALL");
+                Logging(false, true, "Debug", true, this.name + "  - Go to ALL");
                 _context._Data.st_ALL = _context.Got_target_list_default("ALL", _context.settings_path);
                 _context.TransitionTo(new ALL_state(new Log_Handler(Log_mes), _context._Data.st_ALL));
                 GC.Collect();
             }
             else
             {
-                Log_.Debug(this.name + " not all targets reached");
+                //Log_.Debug(this.name + " not all targets reached");
+                Logging(false, true, "Debug", true, this.name + " not all targets reached");
             }
         }
         public override void AN_handle()
@@ -4229,29 +4496,33 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to AN");
-                Log_.Debug(this.name + "  - Go to AN");
-                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke(this.name + "  - Go to AN");
+                //Log_.Debug(this.name + "  - Go to AN");
+                Logging(false, true, "Debug", true, this.name + "  - Go to AN");
                 _context._Data.st_AN = _context.Got_target_list_default("AN", _context.settings_path);
                 _context.TransitionTo(new AN_state(new Log_Handler(Log_mes), _context._Data.st_AN));
                 GC.Collect();
             }
             else
             {
-                Log_.Debug(this.name + " not all targets reached");
+                //Log_.Debug(this.name + " not all targets reached");
+                Logging(false, true, "Debug", true, this.name + " not all targets reached");
             }
         }
         public override void SS_handle()
         {
-            Log_.Debug(this.name + " - Safe State is forbidden - do nothing");
+            //Log_.Debug(this.name + " - Safe State is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Safe State is forbidden - do nothing");
         }
         public override void PHLL_handle()
         {
-            Log_.Debug(this.name + " - Pump High Vacuum is forbidden - do nothing");
+            //Log_.Debug(this.name + " - Pump High Vacuum is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Pump High Vacuum is forbidden - do nothing");
         }
         public override void PLLL_handle()
         {
-            Log_.Debug(this.name + " - Pump Low Vacuum is forbidden - do nothing");
+            //Log_.Debug(this.name + " - Pump Low Vacuum is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Pump Low Vacuum is forbidden - do nothing");
         }
 
     }
@@ -4264,10 +4535,10 @@ namespace State_Machine_FWR
             this.Log_message += Logger;
             Log_mes = Logger;
             this.name = "AN";
-            Log_mes?.Invoke("State " + this.name + " was created");
-            Log_.Debug("State " + this.name + " was created");
+            //Log_mes?.Invoke("State " + this.name + " was created");
+            //Log_.Debug("State " + this.name + " was created");
+            Logging(false, true, "Debug", false, "State " + this.name + " was created");
             this.MAXMIN_version = AN_data.MAX_MIN_version;
-            //this.IP_adress = State_Machine._Data.IP_adress_port;
             need_kill_all = false;
             //грузим списки комманд для разных СОМов
             List<Comand_COM> comm_1_list = AN_data.list1;
@@ -4292,31 +4563,32 @@ namespace State_Machine_FWR
                      AN_data.timers_set,
                      AN_data.com_settings,
                      AN_data.max_min_target);
-            //Log_mes?.Invoke("State " + this.name + " was created");
-            //Log_mes?.Invoke(this.name);
         }
         public override void SS_handle()
         {
-            Log_mes?.Invoke(this.name + " - SS is forbidden - do nothing");
-            Log_.Debug(this.name + " - SS is forbidden - do nothing");
+            //Log_mes?.Invoke(this.name + " - SS is forbidden - do nothing");
+            //Log_.Debug(this.name + " - SS is forbidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - SS is forbidden - do nothing");
         }
         public override void PHLL_handle()
         {
-            Log_mes?.Invoke(this.name + " - Pump High Vacuum is forbbiden - do nothing");
-            Log_.Debug(this.name + " - Pump High Vacuum is forbbiden - do nothing");
+            //Log_mes?.Invoke(this.name + " - Pump High Vacuum is forbbiden - do nothing");
+            //Log_.Debug(this.name + " - Pump High Vacuum is forbbiden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Pump High Vacuum is forbbiden - do nothing");
         }
         public override void PLLL_handle()
         {
-            Log_mes?.Invoke(this.name + " - Pump Low Vacuum is forbbiden - do nothing");
-            Log_.Debug(this.name + " - Pump Low Vacuum is forbbiden - do nothing");
+            //Log_mes?.Invoke(this.name + " - Pump Low Vacuum is forbbiden - do nothing");
+            //Log_.Debug(this.name + " - Pump Low Vacuum is forbbiden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - Pump Low Vacuum is forbbiden - do nothing");
         }
         public override void Er_handle()
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke(this.name + "  - Go to Er");
-            Log_.Debug(this.name + "  - Go to Er");
-            //_context._Data.st_Er.max_min_target.TAR_data_slice = _context._reserved.st_Er.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke(this.name + "  - Go to Er");
+            //Log_.Debug(this.name + "  - Go to Er");
+            Logging(false, true, "Debug", true, this.name + "  - Go to Er");
             _context._Data.st_Er = _context.Got_target_list_default("Er", _context.settings_path);
             _context.TransitionTo(new Er_state(new Log_Handler(Log_mes), _context._Data.st_Er));
             GC.Collect();
@@ -4325,21 +4597,23 @@ namespace State_Machine_FWR
         {
             need_kill_all = true;
             Kill_all_timers();
-            Log_mes?.Invoke(this.name + "  - Go to Em");
-            Log_.Debug(this.name + "  - Go to Em");
-            //_context._Data.st_Em.max_min_target.TAR_data_slice = _context._reserved.st_Em.max_min_target.TAR_data_slice;
+            //Log_mes?.Invoke(this.name + "  - Go to Em");
+            //Log_.Debug(this.name + "  - Go to Em");
+            Logging(false, true, "Debug", true, this.name + "  - Go to Em");
             _context._Data.st_Em = _context.Got_target_list_default("Em", _context.settings_path);
             _context.TransitionTo(new Em_state(new Log_Handler(Log_mes), _context._Data.st_Em));
             GC.Collect();
         }
         public override void ALL_handle()
         {
-            Log_mes?.Invoke(this.name + " Open Load Lock is fobidden - do nothing");
-            Log_.Debug(this.name + " Open Load Lock is fobidden - do nothing");
+            //Log_mes?.Invoke(this.name + " Open Load Lock is fobidden - do nothing");
+            //Log_.Debug(this.name + " Open Load Lock is fobidden - do nothing");
+            Logging(false, true, "Debug", true, this.name + " Open Load Lock is fobidden - do nothing");
         }
         public override void AN_handle()
         {
-            Log_.Debug(this.name + " - do nothing");            
+            //Log_.Debug(this.name + " - do nothing");
+            Logging(false, true, "Debug", true, this.name + " - do nothing");
         }
         public override void HVSB_handle()
         {
@@ -4347,16 +4621,17 @@ namespace State_Machine_FWR
             {
                 need_kill_all = true;
                 Kill_all_timers();
-                Log_mes?.Invoke(this.name + "  - Go to HVSB");
-                Log_.Debug(this.name + " - Go to HVSB");
-                //_context._Data.st_PLLL.max_min_target.TAR_data_slice = _context._reserved.st_PLLL.max_min_target.TAR_data_slice;
+                //Log_mes?.Invoke(this.name + "  - Go to HVSB");
+                //Log_.Debug(this.name + " - Go to HVSB");
+                Logging(false, true, "Debug", true, this.name + " - Go to HVSB");
                 _context._Data.st_HVSB = _context.Got_target_list_default("HVSB", _context.settings_path);
                 _context.TransitionTo(new HVSB_state(new Log_Handler(Log_mes), _context._Data.st_HVSB));
                 GC.Collect();
             }
             else
             {
-                Log_.Debug(this.name + " not all targets reached");
+                //Log_.Debug(this.name + " not all targets reached");
+                Logging(false, true, "Debug", true, this.name + " not all targets reached");
             }
         }
 

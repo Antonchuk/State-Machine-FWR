@@ -213,11 +213,11 @@ namespace State_Machine_FWR
         /// <summary>
         /// список очередей (номер здесь = номеру в словаре????)
         /// </summary>
-        public List<ConcurrentQueue<string>> queues;
+        public ConcurrentDictionary<int,ConcurrentQueue<string>> queues;
         public Queue_master()
         {
             queue_list = new ConcurrentDictionary<int, IPAddress>();
-            queues = new List<ConcurrentQueue<string>>();
+            queues = new ConcurrentDictionary<int,ConcurrentQueue<string>>();
         }
         /// <summary>
         /// ищем номер очереди с таким ИД, если нет -1
@@ -229,6 +229,7 @@ namespace State_Machine_FWR
             int ans = -1;
             foreach (KeyValuePair<int, IPAddress> p in queue_list)
             {
+                Logg.Trace("checking list of queues "+p.Key.ToString() +" "+ p.Value.ToString()+" elements = "+queues[p.Key].Count.ToString());
                 if (p.Value==adr)
                 {
                     ans = p.Key;
@@ -243,11 +244,11 @@ namespace State_Machine_FWR
         /// <returns> номер очереди </returns>
         public int Add_new_que(IPAddress adr)
         {
-            Logg.Debug("start find new q for "+adr.ToString());
+            Logg.Trace("start find new q for "+adr.ToString());
             int ans = -1;
             //проверяем есть ли такой клиент
             int new_id = Find_adr(adr);
-            Logg.Debug("existing id for " + adr.ToString()+ " = " + new_id.ToString());
+            Logg.Trace("existing id for " + adr.ToString()+ " = " + new_id.ToString());
             if (new_id!=-1)
             {
                 //если есть - очищаем его очередь
@@ -256,33 +257,74 @@ namespace State_Machine_FWR
                     queues[new_id].TryDequeue(out _);
                 }                    
                 return new_id; 
-            }            
+            }
             //добавляем новую очередь
-            new_id = queue_list.Count;
+            new_id = Get_Free_ID();
             ans = new_id;
-            Logg.Debug("add new id for " + adr.ToString() + " = " + new_id.ToString());
-            queue_list.TryAdd(new_id, adr);
-            queues.Add(new ConcurrentQueue<string>());
+            Logg.Trace("add new id for " + adr.ToString() + " = " + new_id.ToString());
+            if (queue_list.TryAdd(new_id, adr))
+            {
+                queues.TryAdd(new_id, new ConcurrentQueue<string>());
+            }
             return ans;
-        }        
-        //удаляем очередь
+        }
+        private int Get_Free_ID()
+        {
+            int ans = -1;
+            //олучаем макс Ключ
+            int max_key = -1;
+            foreach (KeyValuePair<int, IPAddress> k in queue_list)
+            {
+                if (max_key<k.Key)
+                {
+                    max_key = k.Key;
+                }
+            }
+            if (max_key >= 0)
+            {
+                for (int i = 0; i <= max_key; i++)
+                {
+                    if (!queue_list.ContainsKey(i))
+                    {
+                        ans = i;
+                    }
+                }
+            }
+            if (ans ==-1)
+            {
+                ans = max_key + 1;
+            }
+            return ans;
+        }
+        /// <summary>
+        /// удаляем очередь
+        /// </summary>
+        /// <param name="q_num"></param>
+        /// <returns></returns>
         public bool Del_queue(int q_num)
         {
-            Logg.Debug("deleting queue nub " + q_num.ToString());
+            Logg.Trace("deleting queue num " + q_num.ToString());
             bool ans = false;
             if (queue_list.ContainsKey(q_num))
             {                
-                queues.Remove(queues[q_num]);
-                queue_list.TryRemove(q_num, out _);
+                queues.TryRemove(q_num,out _);
+                if (queue_list.TryRemove(q_num, out _))
+                {
+                    Logg.Trace("we delete " + q_num.ToString());
+                }
+                else
+                {
+                    Logg.Trace("NO deletion " + q_num.ToString());
+                }
                 ans = true;
             }
             return ans;
         }
         public void SimpleMessage(string str)
         {
-            foreach (ConcurrentQueue<string> qq in queues)
+            foreach (KeyValuePair<int,ConcurrentQueue<string>> qq in queues)
             {
-                qq.Enqueue(str);
+                qq.Value.Enqueue(str);
             }
         }
     }
@@ -488,7 +530,11 @@ namespace State_Machine_FWR
         {
             while (q_master.queues[q_num].Count>=1)
             {
-                q_master.queues[q_num].TryDequeue(out _);
+                //bool res = false;
+                if (q_master.queues[q_num].TryDequeue(out _))
+                {
+                    Logg.Trace("queue was deleted,num = "+q_num.ToString() );
+                }
             }
         }
         private TCP_message TCP_message_construct(int q_num)
@@ -512,13 +558,14 @@ namespace State_Machine_FWR
             mess.State_info = _state.StateInfo;
             mess.State_name = _state.name;
             mess.messages = new List<string>();
-            if (q_master.queues.Count >= q_num)
-            {
-                foreach (string str in q_master.queues[q_num])
+            Logg.Trace("queues count = "+ q_master.queues.Count.ToString() + "\nqueue NOW = " + q_num.ToString());
+            //if (q_master.queues.c)
+            //{
+                foreach (string str in q_master.queues[q_num]) 
                 {
                     mess.messages.Add(str);
                 }
-            }
+            //}
             //очищаем очередь сообщений
             Clear_queue(q_num);
             //state_inf = state_inf + ";" + _state.name +";"+ is_ready_manage.ToString()+";"+_state.MAXMIN_version ;
@@ -565,7 +612,7 @@ namespace State_Machine_FWR
                 }
                 catch (IOException ex)
                 {
-                    Logg.Trace("error in simple message" + ex.ToString());
+                    Logg.Trace("IO error in simple message" + ex.ToString());
                     ans = false;
                     //вернуть результат
                 }
@@ -1098,9 +1145,9 @@ namespace State_Machine_FWR
         {
             //взять каждую очередь
             //запихнуть в каждую очередь
-            foreach(ConcurrentQueue<string> q in _context.q_master.queues)
+            foreach(KeyValuePair<int, ConcurrentQueue<string>> q in _context.q_master.queues)
             {
-                q.Enqueue(new_item);
+                q.Value.Enqueue(new_item);
             }
 
             /*
@@ -1163,7 +1210,7 @@ namespace State_Machine_FWR
             {
                 //запихиваем в очередь сообщений для всех клиентов
                 //_context.messages.Enqueue(_message);
-                AddInQueue(_message);
+                AddInQueue(string.Format("{0} : {1}", DateTime.Now.ToShortTimeString(), _message));
             }                        
         }
         //тик для таймера 1

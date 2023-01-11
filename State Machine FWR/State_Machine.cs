@@ -1616,7 +1616,7 @@ namespace State_Machine_FWR
                             {
                                 //Log_message?.Invoke(port.PortName + " critical error, " + out_dat.message);
                                 //Log_.Error(port.PortName + " critical error, " + out_dat.message);
-                                Logging(true, true, "Error", true, port.PortName + " critical error, " + out_dat.message);
+                                Logging(true, true, "Fatal", true, port.PortName + " critical error, " + out_dat.message);
                                 Error_deal(true, num_loop);
                                 finished_previous[num_loop] = true;
                                 break;
@@ -1841,7 +1841,7 @@ namespace State_Machine_FWR
                 //Log_.Debug("on_off = " + on_off);
                 //Log_.Debug("hours = " + hours);
                 //Log_.Debug("inf = " + inf);
-                Logging(false, true, "Debug", false, "inf = " + inf);
+                //Logging(false, true, "Debug", false, "inf = " + inf);
                 if (on_off == "OFF")
                 {
                     Write_to_StateInfo(0, 137);

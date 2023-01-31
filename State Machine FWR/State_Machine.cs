@@ -608,6 +608,7 @@ namespace State_Machine_FWR
                     byte[] message = Encoding.UTF8.GetBytes(m);
                     //пишем ему ответ
                     Logg.Trace("Server = " + m);
+                    Logg.Info(m);
                     await TCPstream.WriteAsync(message, 0, message.Length, ttt);
                 }
                 catch (IOException ex)
@@ -1246,6 +1247,10 @@ namespace State_Machine_FWR
                     Monitor.Exit(_lockers[0]);
                 }
             }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 1 miss tick");
+            }
         }
         //тик для таймера 2
         private void Tick_com2(object state)
@@ -1279,6 +1284,10 @@ namespace State_Machine_FWR
                     //Log_message?.Invoke("block finally");
                     Monitor.Exit(_lockers[1]);
                 }
+            }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 2 miss tick");
             }
         }
         //тик для таймера 3
@@ -1314,6 +1323,10 @@ namespace State_Machine_FWR
                     Monitor.Exit(_lockers[2]);
                 }
             }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 3 miss tick");
+            }
         }
         //тик для таймера 4
         private void Tick_com4(object state)
@@ -1347,6 +1360,10 @@ namespace State_Machine_FWR
                     //Log_message?.Invoke("block finally");
                     Monitor.Exit(_lockers[3]);
                 }
+            }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 4 miss tick");
             }
         }
         /// <summary>
@@ -1396,6 +1413,10 @@ namespace State_Machine_FWR
                     Monitor.Exit(_lockers[4]);
                 }
             }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 5 miss tick");
+            }
         }
         //тик для таймера 6
         private void Tick_com6(object state)
@@ -1429,6 +1450,10 @@ namespace State_Machine_FWR
                     //Log_message?.Invoke("block finally");
                     Monitor.Exit(_lockers[5]);
                 }
+            }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 6 miss tick");
             }
         }
         //тик для таймера 7
@@ -1464,6 +1489,10 @@ namespace State_Machine_FWR
                     Monitor.Exit(_lockers[6]);
                 }
             }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 7 miss tick");
+            }
         }
         //тик для таймера 8
         private void Tick_com8(object state)
@@ -1497,6 +1526,10 @@ namespace State_Machine_FWR
                     //Log_message?.Invoke("block finally");
                     Monitor.Exit(_lockers[7]);
                 }
+            }
+            else
+            {
+                //Logging(false, true, "Error", false, "timer 8 miss tick");
             }
         }
         /// <summary>
@@ -3189,6 +3222,30 @@ namespace State_Machine_FWR
             }
             return aaa;
         }
+        /// <summary>
+        /// парсим ответ нового модуля тираконт
+        /// </summary>
+        /// <param name="_input"></param>
+        /// <returns></returns>
+        private float Get_pressure_thyr(string _input)
+        {
+            float _ans;
+            int data_len = int.Parse(_input.Substring(7, 1));
+            string data = _input.Substring(8, data_len).Replace('.', ',');            
+            switch (data)
+            {
+                case "UR":
+                    _ans = float.Parse("5E-10");
+                    break;
+                case "OR":
+                    _ans = float.Parse("3000");
+                    break;
+                default:
+                    _ans = float.Parse(data);
+                    break;
+            }
+            return _ans;
+        }
         //парсинг ответа датчика вакуума
         private COM_data_Out Parse_Thyracont(string com_ans, int id, int portname)
         {
@@ -3202,22 +3259,8 @@ namespace State_Machine_FWR
                     //пробуем добавить ноль в начале или удалить символ в начале
                     if (com_ans.Substring(3, 1) != "7")
                     {
-                        int data_len = int.Parse(com_ans.Substring(7, 1));
-                        string data = com_ans.Substring(8, data_len).Replace('.', ',');
                         Thyr_data Thyr_real_data = new Thyr_data { };
-                        switch (data)
-                        {
-                            case "UR":
-                                Thyr_real_data.pressure = float.Parse("5E-10");
-                                break;
-                            case "OR":
-                                Thyr_real_data.pressure = float.Parse("3000");
-                                break;
-                            default:
-                                Thyr_real_data.pressure = float.Parse(data);
-                                break;
-                        }
-                        
+                        Thyr_real_data.pressure = Get_pressure_thyr(com_ans);
                         Write_to_StateInfo(Thyr_real_data.pressure, id);
 
                         if (Convert.ToDecimal(Thyr_real_data.pressure) >= Convert.ToDecimal(max_min_tar_data.MIN_data_slice[id]) &&
@@ -3245,10 +3288,56 @@ namespace State_Machine_FWR
             }
             catch (Exception exx)
             {
-                aaa.message = name + " - Thyracont parsing problem " + exx.Message.ToString();
-                aaa.need_error_procces = true;
+                //пробуем пропарсить подругому
+                COM_data_Out _another_pars = new COM_data_Out();
+                _another_pars = Thyracont_sp_parse(com_ans);
+                if (!_another_pars.need_error_procces)
+                {
+                    //повторяем блок 
+                    Write_to_StateInfo(_another_pars.ans, id);
+                    if (Convert.ToDecimal(_another_pars.ans) >= Convert.ToDecimal(max_min_tar_data.MIN_data_slice[id]) &&
+                    Convert.ToDecimal(_another_pars.ans) <= Convert.ToDecimal(max_min_tar_data.MAX_data_slice[id]))
+                    {
+                        aaa.ans = _another_pars.ans;
+                    }
+                    else
+                    {
+                        aaa.message = name + " -  BAD pressure!!! " + id.ToString() + " pressure = " + _another_pars.ans.ToString();
+                        //в Em всегда нужно собирать данные пока есть возможность некуда переходить
+                        if (name != "Em")
+                        {
+                            aaa.need_error_procces = true;
+                            aaa.need_break = true;
+                        }
+                    }
+                }
+                else
+                {
+                    aaa.message = name + " - Thyracont parsing problem " + exx.Message.ToString() + "\n"+_another_pars.message;
+                    aaa.need_error_procces = true;
+                }                
             }
             return aaa;
+        }
+        private COM_data_Out Thyracont_sp_parse(string _input)
+        {
+            COM_data_Out _ans = new COM_data_Out();
+            float _pressure;
+            string _new_input = _input.Substring(1);
+            try
+            {
+                _pressure = Get_pressure_thyr(_new_input);
+                _ans.need_break = false;
+                _ans.need_error_procces = false;
+                _ans.ans = _pressure;
+            }
+            catch
+            {
+                //если не смогли отпарсить - значит все равно ошибка
+                _ans.need_error_procces = true;
+                _ans.message = "Thyracont DOUBLE parsing problem";
+            }
+            return _ans;
         }
         //парсинг ответа датчика вакуума, старый протокол
         private COM_data_Out Parse_Thyracont_old(string com_ans, int id, int portname)

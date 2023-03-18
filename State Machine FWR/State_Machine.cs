@@ -1211,7 +1211,7 @@ namespace State_Machine_FWR
             {
                 //запихиваем в очередь сообщений для всех клиентов
                 //_context.messages.Enqueue(_message);
-                AddInQueue(string.Format("{0} : {1}", DateTime.Now.ToShortTimeString(), _message));
+                AddInQueue(string.Format("{0} : {1}", DateTime.Now.ToString("dd.MM HH:mm:ss"), _message));
             }                        
         }
         //тик для таймера 1

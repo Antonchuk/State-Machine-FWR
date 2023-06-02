@@ -583,6 +583,7 @@ namespace State_Machine_FWR
             bool ans = false;
             if (_state != null && _state.StateInfo != null)
             {
+                Logg.Trace("we in if");
                 //Log_m(TCPstream.CanTimeout.ToString()); //всегда true
                 //Log_m(TCPstream.ReadTimeout.ToString()); //по умолчанию -1
                 //Log_m(TCPstream.WriteTimeout.ToString()); //по умолчанию -1                
@@ -592,10 +593,12 @@ namespace State_Machine_FWR
                     //ждем запроса клиента
                     var buffer_in = new byte[1024];
                     var byte_count = await TCPstream.ReadAsync(buffer_in, 0, buffer_in.Length, ttt);
+                    Logg.Trace("we read");
                     string client_q = Encoding.UTF8.GetString(buffer_in, 0, byte_count);
                     Logg.Trace("Client "+ IP_cl + "= " + client_q);
                     ans = true;
                     Client_ans_Parse(client_q);
+                    Logg.Trace("we parse");
                     string m = "default string";
                     try
                     {
@@ -623,6 +626,10 @@ namespace State_Machine_FWR
                     ans = false;
                 }
 
+            }
+            else
+            {
+                Logg.Trace("we not in if");
             }
             return ans;
         }
@@ -2223,8 +2230,6 @@ namespace State_Machine_FWR
                 {
                     int dat_len = int.Parse(ans.Substring(8, 2));
                     aaa.ans = float.Parse(ans.Substring(10, dat_len));
-                    //Log_message?.Invoke("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
-                    //Log_.Debug("pfeiffer val " + id.ToString() + " = " + aaa.ans.ToString());
                     Write_to_StateInfo(aaa.ans, id);
                     //проврека на МАКС/МИН
                     if (aaa.ans<max_min_tar_data.MIN_data_slice[id] || aaa.ans>max_min_tar_data.MAX_data_slice[id])
@@ -2502,7 +2507,7 @@ namespace State_Machine_FWR
                                 val40_25_7 == 0 &&
                                 val40_42_7 == 1 &&
                                 new_value == 0 &&
-                                val40_8_7 > 0)
+                                (val40_8_7 > 0 && val40_8_7 != 1000))
                             {
                                 ans = true;
                             }
@@ -2629,7 +2634,7 @@ namespace State_Machine_FWR
                                 val74_25_7 == 0 &&
                                 val74_76_7 == 1 &&
                                 new_value == 0 &&
-                                val74_8_7 > 0)
+                                (val74_8_7 > 0 && val74_8_7 != 1000))
                             {
                                 ans = true;
                             }
@@ -2649,8 +2654,7 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                             //вкл
-                            if (val28_23 == 1 &&
-                                new_value == 1)
+                            if (new_value == 1)
                             {
                                 ans = true;
                             }
@@ -2672,7 +2676,7 @@ namespace State_Machine_FWR
                             && StateInfo.TryGetValue(8, out float val28_8_2))
                         {
                             if (val28_23_2 == 0 &&
-                                val28_8_2 > 0)
+                                (val28_8_2 > 0 && val28_8_2 != 1000))
                             {
                                 ans = true;
                             }
@@ -2703,8 +2707,7 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                             //вкл
-                            if (val29_24 == 1 &&
-                                new_value == 1)
+                            if (new_value == 1)
                             {
                                 ans = true;
                             }
@@ -2726,7 +2729,7 @@ namespace State_Machine_FWR
                             && StateInfo.TryGetValue(8, out float val29_8_2))
                         {
                             if (val29_24_2 == 0 &&
-                                val29_8_2 > 0)
+                                (val29_8_2 > 0 && val29_8_2 != 1000))
                             {
                                 ans = true;
                             }
@@ -2777,10 +2780,19 @@ namespace State_Machine_FWR
                         break;
                     case 23:
                         //клапан LL
-                        //вкл/выкл всегда можно в не Emergency
-                        if (name != "Em")
+                        //выкл всегда можно в не Emergency
+                        if (name != "Em" && new_value == 0)
                         {
                             ans = true;
+                        }
+                        //вкл можно если форв откачались
+                        if (name != "Em" && new_value == 1
+                            && StateInfo.TryGetValue(10, out float val23_10_1))
+                        {
+                            if (val23_10_1 <= 0.1)
+                            {
+                                ans = true;
+                            }
                         }
                         //ток ТМН 47 больше макс
                         if (name == "Em"
@@ -2831,20 +2843,29 @@ namespace State_Machine_FWR
                         if (name == "Em"
                             && StateInfo.TryGetValue(8, out float val23_8))
                         {
-                            if (val23_8 > 0)
+                            if (val23_8 > 0 && val23_8 != 1000)
                             {
                                 ans = true;
                             }
                         }                        
                         break;
                     case 24:
-                        //клапан LL
-                        //вкл/выкл всегда можно в не Emergency
-                        if (name != "Em")
+                        //клапан AC
+                        //выкл всегда можно в не Emergency
+                        if (name != "Em" && new_value ==0 )
                         {
                             ans = true;
                         }
-                        //ток ТМН 47 больше макс
+                        //вкл можно если форв откачались
+                        if (name != "Em" && new_value ==1
+                            && StateInfo.TryGetValue(12, out float val24_12_1))
+                        {
+                            if (val24_12_1 <= 0.1)
+                            {
+                                ans = true;
+                            }
+                        }
+                        //ток ТМН 81 больше макс
                         if (name == "Em"
                             && StateInfo.TryGetValue(81, out float val24_81))
                         {
@@ -2893,7 +2914,7 @@ namespace State_Machine_FWR
                         if (name == "Em"
                             && StateInfo.TryGetValue(8, out float val24_8))
                         {
-                            if (val24_8 > 0)
+                            if (val24_8 > 0 && val24_8 != 1000)
                             {
                                 ans = true;
                             }
@@ -3193,8 +3214,8 @@ namespace State_Machine_FWR
                                     if (real_d.temperature >= max_min_tar_data.MIN_data_slice[7] &&
                                         real_d.temperature <= max_min_tar_data.MAX_data_slice[7])
                                     {
-                                        if (real_d.ups_fault >= max_min_tar_data.MIN_data_slice[8] &&
-                                            real_d.ups_fault <= max_min_tar_data.MAX_data_slice[8])
+                                        if ((real_d.ups_fault >= max_min_tar_data.MIN_data_slice[8] &&
+                                            real_d.ups_fault <= max_min_tar_data.MAX_data_slice[8]) || real_d.ups_fault==1000)
                                         {
                                             aaa.need_break = false;
                                             aaa.need_error_procces = false;

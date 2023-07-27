@@ -2645,7 +2645,9 @@ namespace State_Machine_FWR
                     case 28:
                         //вкл/выкл форвакуумный насос на LL
                         if (name != "Em"
-                            && StateInfo.TryGetValue(23, out float val28_23))
+                            && StateInfo.TryGetValue(23, out float val28_23)
+                            && StateInfo.TryGetValue(10, out float val28_10)
+                            && StateInfo.TryGetValue(11, out float val28_11))
                         {
                             //выкл
                             if (val28_23 == 0 &&
@@ -2654,7 +2656,14 @@ namespace State_Machine_FWR
                                 ans = true;
                             }
                             //вкл
-                            if (new_value == 1)
+                            if (new_value == 1 
+                                && val28_11 <=0.1)
+                            {
+                                ans = true;
+                            }
+                            if (new_value == 1
+                                && val28_11 >= 100
+                                && val28_23 == 1)
                             {
                                 ans = true;
                             }
@@ -2787,9 +2796,16 @@ namespace State_Machine_FWR
                         }
                         //вкл можно если форв откачались
                         if (name != "Em" && new_value == 1
-                            && StateInfo.TryGetValue(10, out float val23_10_1))
+                            && StateInfo.TryGetValue(10, out float val23_10_1)
+                            && StateInfo.TryGetValue(11, out float val23_11_1))
                         {
-                            if (val23_10_1 <= 0.1)
+                            if (val23_10_1 <= 0.1 &&
+                                val23_11_1 <= 0.1)
+                            {
+                                ans = true;
+                            }
+                            if (val23_10_1 >= 100 &&
+                                val23_11_1 >= 100)
                             {
                                 ans = true;
                             }
@@ -3259,7 +3275,7 @@ namespace State_Machine_FWR
                     _ans = float.Parse("5E-10");
                     break;
                 case "OR":
-                    _ans = float.Parse("3000");
+                    _ans = float.Parse("1200");
                     break;
                 default:
                     _ans = float.Parse(data);
